@@ -1,0 +1,79 @@
+# Fail2ban Configuration Tasks
+---
+- name: Install EPEL repository (RHEL/Amazon Linux)
+  ansible.builtin.yum:
+    name: epel-release
+    state: present
+  when: ansible_os_family == "RedHat"
+  ignore_errors: true
+
+- name: Install fail2ban
+  ansible.builtin.package:
+    name: fail2ban
+    state: present
+
+- name: Install fail2ban-firewalld (RHEL)
+  ansible.builtin.yum:
+    name: fail2ban-firewalld
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Create fail2ban configuration directory
+  ansible.builtin.file:
+    path: /etc/fail2ban/jail.d
+    state: directory
+    mode: "0755"
+
+- name: Configure fail2ban main settings
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Configure fail2ban SSH jail
+  ansible.builtin.template:
+    src: jail.d/sshd.conf.j2
+    dest: /etc/fail2ban/jail.d/sshd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Configure fail2ban nginx jails
+  ansible.builtin.template:
+    src: jail.d/nginx.conf.j2
+    dest: /etc/fail2ban/jail.d/nginx.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: "'webservers' in group_names"
+  notify: Restart fail2ban
+
+- name: Configure custom fail2ban filters
+  ansible.builtin.template:
+    src: "filter.d/{{ item }}.conf.j2"
+    dest: "/etc/fail2ban/filter.d/{{ item }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ fail2ban_custom_filters | default([]) }}"
+  notify: Restart fail2ban
+
+- name: Configure custom fail2ban jails
+  ansible.builtin.template:
+    src: jail.d/custom.conf.j2
+    dest: /etc/fail2ban/jail.d/custom.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: fail2ban_custom_jails is defined and fail2ban_custom_jails | length > 0
+  notify: Restart fail2ban
+
+- name: Ensure fail2ban is enabled and running
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true

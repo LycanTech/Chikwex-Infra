@@ -1,0 +1,36 @@
+# AWS Integration Role - Default Variables
+---
+# AWS Region
+aws_region: us-east-1
+
+# AWS CLI Configuration
+aws_configure_cli: true
+
+# SSM Agent Configuration
+aws_ssm_enabled: true
+ssm_log_level: INFO
+
+# CloudWatch Agent Configuration
+aws_cloudwatch_enabled: true
+cloudwatch_log_group: "/chikwex-infra/{{ environment_name | default('dev') }}"
+cloudwatch_metrics_namespace: "Chikwex/EC2"
+cloudwatch_metrics_interval: 60
+cloudwatch_additional_logs: []
+
+# Secrets Manager Configuration
+aws_secrets_manager_enabled: false
+aws_secrets_to_fetch: []
+aws_secrets_auto_refresh: false
+secrets_cache_directory: /var/cache/secrets
+
+# S3 Log Shipping Configuration
+aws_s3_log_shipping_enabled: false
+s3_log_bucket: ""
+s3_log_prefix: "logs"
+s3_log_shipping_interval: 15
+s3_logs_to_ship:
+  - /var/log/messages
+  - /var/log/secure
+
+# Instance Metadata
+aws_enforce_imdsv2: false

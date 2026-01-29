@@ -1,0 +1,47 @@
+# PostgreSQL Backup Configuration Tasks
+---
+- name: Create backup directory
+  ansible.builtin.file:
+    path: "{{ postgresql_backup_directory }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Deploy backup script
+  ansible.builtin.template:
+    src: backup.sh.j2
+    dest: /opt/scripts/postgresql_backup.sh
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Deploy WAL archive script
+  ansible.builtin.template:
+    src: wal_archive.sh.j2
+    dest: /usr/local/bin/wal_archive.sh
+    owner: postgres
+    group: postgres
+    mode: "0750"
+
+- name: Create backup cron job
+  ansible.builtin.cron:
+    name: "PostgreSQL daily backup"
+    minute: "0"
+    hour: "2"
+    job: "/opt/scripts/postgresql_backup.sh >> /var/log/postgresql_backup.log 2>&1"
+    user: postgres
+
+- name: Create backup cleanup cron job
+  ansible.builtin.cron:
+    name: "PostgreSQL backup cleanup"
+    minute: "30"
+    hour: "3"
+    job: "find {{ postgresql_backup_directory }} -name '*.sql.gz' -mtime +{{ postgresql_backup_retention_days }} -delete"
+    user: postgres
+
+- name: Install AWS CLI for S3 backups
+  ansible.builtin.pip:
+    name: awscli
+    state: present
+  when: postgresql_backup_s3_bucket is defined

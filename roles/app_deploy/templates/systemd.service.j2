@@ -1,0 +1,70 @@
+# Systemd Service for {{ app_name }}
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+[Unit]
+Description={{ app_description | default(app_name + ' Application') }}
+After=network.target
+{% if app_requires is defined %}
+{% for req in app_requires %}
+Requires={{ req }}
+{% endfor %}
+{% endif %}
+
+[Service]
+Type={{ app_service_type | default('simple') }}
+User={{ app_user | default(app_name) }}
+Group={{ app_group | default(app_name) }}
+WorkingDirectory={{ app_deploy_dir }}/current
+
+{% if app_type == 'python' %}
+ExecStart={{ app_deploy_dir }}/shared/venv/bin/{{ app_exec_command | default('gunicorn') }} {{ app_exec_args | default(app_name + '.wsgi:application -b 127.0.0.1:8000') }}
+{% elif app_type == 'nodejs' %}
+ExecStart=/usr/bin/node {{ app_exec_command | default('server.js') }} {{ app_exec_args | default('') }}
+{% elif app_type == 'go' %}
+ExecStart={{ app_deploy_dir }}/current/{{ app_name }} {{ app_exec_args | default('') }}
+{% else %}
+ExecStart={{ app_exec_command }} {{ app_exec_args | default('') }}
+{% endif %}
+
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart={{ app_restart_policy | default('on-failure') }}
+RestartSec={{ app_restart_sec | default(5) }}
+
+# Environment
+{% if app_env_file is defined %}
+EnvironmentFile={{ app_env_file }}
+{% else %}
+EnvironmentFile=-{{ app_deploy_dir }}/shared/config/.env
+{% endif %}
+
+{% if app_env_vars is defined %}
+{% for key, value in app_env_vars.items() %}
+Environment="{{ key }}={{ value }}"
+{% endfor %}
+{% endif %}
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+{% if app_security_hardening | default(true) %}
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ app_deploy_dir }}
+{% endif %}
+
+# Limits
+{% if app_limit_nofile is defined %}
+LimitNOFILE={{ app_limit_nofile }}
+{% endif %}
+{% if app_limit_nproc is defined %}
+LimitNPROC={{ app_limit_nproc }}
+{% endif %}
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={{ app_name }}
+
+[Install]
+WantedBy=multi-user.target

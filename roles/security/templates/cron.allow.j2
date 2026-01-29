@@ -1,0 +1,7 @@
+# Cron Access List
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+{% for user in cron_allowed_users | default(['root']) %}
+{{ user }}
+{% endfor %}

@@ -1,0 +1,129 @@
+# Security Hardening Tasks
+---
+- name: Disable unused filesystems
+  ansible.builtin.copy:
+    content: |
+      install cramfs /bin/true
+      install freevxfs /bin/true
+      install jffs2 /bin/true
+      install hfs /bin/true
+      install hfsplus /bin/true
+      install squashfs /bin/true
+      install udf /bin/true
+      install vfat /bin/true
+    dest: /etc/modprobe.d/disable-filesystems.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Disable unused network protocols
+  ansible.builtin.copy:
+    content: |
+      install dccp /bin/true
+      install sctp /bin/true
+      install rds /bin/true
+      install tipc /bin/true
+    dest: /etc/modprobe.d/disable-protocols.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Set secure permissions on cron directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0700"
+  loop:
+    - /etc/cron.d
+    - /etc/cron.daily
+    - /etc/cron.hourly
+    - /etc/cron.weekly
+    - /etc/cron.monthly
+
+- name: Set secure permissions on crontab
+  ansible.builtin.file:
+    path: /etc/crontab
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Restrict cron to authorized users
+  ansible.builtin.template:
+    src: cron.allow.j2
+    dest: /etc/cron.allow
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Remove cron.deny if exists
+  ansible.builtin.file:
+    path: /etc/cron.deny
+    state: absent
+
+- name: Set secure permissions on passwd/shadow files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: "{{ item.group | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/passwd, mode: "0644" }
+    - { path: /etc/shadow, mode: "0000", group: shadow }
+    - { path: /etc/group, mode: "0644" }
+    - { path: /etc/gshadow, mode: "0000", group: shadow }
+  ignore_errors: true
+
+- name: Configure login.defs
+  ansible.builtin.lineinfile:
+    path: /etc/login.defs
+    regexp: "^{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+  loop:
+    - { key: "PASS_MAX_DAYS", value: "90" }
+    - { key: "PASS_MIN_DAYS", value: "7" }
+    - { key: "PASS_WARN_AGE", value: "14" }
+    - { key: "UMASK", value: "027" }
+
+- name: Configure secure umask in profile
+  ansible.builtin.lineinfile:
+    path: /etc/profile
+    regexp: "^umask"
+    line: "umask 027"
+    state: present
+
+- name: Disable core dumps
+  ansible.builtin.copy:
+    content: |
+      * hard core 0
+      * soft core 0
+    dest: /etc/security/limits.d/core.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure sysctl security settings
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-security.conf
+    reload: true
+  loop:
+    - { key: "kernel.randomize_va_space", value: "2" }
+    - { key: "kernel.exec-shield", value: "1" }
+    - { key: "kernel.dmesg_restrict", value: "1" }
+    - { key: "kernel.kptr_restrict", value: "2" }
+    - { key: "kernel.yama.ptrace_scope", value: "1" }
+    - { key: "fs.suid_dumpable", value: "0" }
+  ignore_errors: true
+
+- name: Set GRUB password (if configured)
+  ansible.builtin.template:
+    src: grub_password.cfg.j2
+    dest: /etc/grub.d/40_custom_password
+    owner: root
+    group: root
+    mode: "0700"
+  when: grub_password is defined
+  notify: Regenerate GRUB config

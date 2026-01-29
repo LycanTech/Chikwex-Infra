@@ -1,0 +1,49 @@
+# Automatic Security Updates Configuration Tasks
+---
+- name: Install dnf-automatic (RHEL/Amazon Linux)
+  ansible.builtin.yum:
+    name: dnf-automatic
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Configure dnf-automatic
+  ansible.builtin.template:
+    src: automatic.conf.j2
+    dest: /etc/dnf/automatic.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == "RedHat"
+
+- name: Enable dnf-automatic timer
+  ansible.builtin.systemd:
+    name: dnf-automatic.timer
+    state: started
+    enabled: true
+  when: ansible_os_family == "RedHat"
+
+- name: Install unattended-upgrades (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name:
+      - unattended-upgrades
+      - apt-listchanges
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Configure unattended-upgrades
+  ansible.builtin.template:
+    src: 50unattended-upgrades.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == "Debian"
+
+- name: Enable unattended-upgrades
+  ansible.builtin.template:
+    src: 20auto-upgrades.j2
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+  when: ansible_os_family == "Debian"

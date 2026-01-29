@@ -1,0 +1,51 @@
+# Application Configuration Tasks
+---
+- name: Deploy application environment file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_deploy_dir }}/shared/config/.env"
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "0600"
+  when: app_env_vars is defined
+  notify:
+    - Restart application
+
+- name: Deploy application configuration files
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ app_deploy_dir }}/shared/config/{{ item.dest }}"
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop: "{{ app_config_files | default([]) }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  notify:
+    - Restart application
+
+- name: Create environment file symlink in release
+  ansible.builtin.file:
+    src: "{{ app_deploy_dir }}/shared/config/.env"
+    dest: "{{ app_deploy_dir }}/current/.env"
+    state: link
+    force: true
+  when: app_env_vars is defined
+
+- name: Fetch secrets from AWS Secrets Manager
+  ansible.builtin.command: >
+    /opt/scripts/get_secret.py
+    --secret-id {{ app_secrets_manager_id }}
+    --output {{ app_deploy_dir }}/shared/config/secrets.json
+    --format json
+  when: app_secrets_manager_id is defined
+  no_log: true
+  changed_when: false
+
+- name: Set permissions on secrets file
+  ansible.builtin.file:
+    path: "{{ app_deploy_dir }}/shared/config/secrets.json"
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "0600"
+  when: app_secrets_manager_id is defined

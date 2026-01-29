@@ -1,0 +1,73 @@
+# AWS Systems Manager Agent Configuration Tasks
+---
+- name: Check if SSM Agent is installed
+  ansible.builtin.stat:
+    path: /usr/bin/amazon-ssm-agent
+  register: ssm_agent_binary
+
+- name: Install SSM Agent (Amazon Linux)
+  ansible.builtin.yum:
+    name: amazon-ssm-agent
+    state: present
+  when:
+    - ansible_distribution == "Amazon"
+    - not ssm_agent_binary.stat.exists
+
+- name: Install SSM Agent (RHEL/CentOS)
+  ansible.builtin.yum:
+    name: "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm"
+    state: present
+    disable_gpg_check: true
+  when:
+    - ansible_os_family == "RedHat"
+    - ansible_distribution != "Amazon"
+    - not ssm_agent_binary.stat.exists
+
+- name: Install SSM Agent (Debian/Ubuntu)
+  ansible.builtin.apt:
+    deb: "https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.deb"
+    state: present
+  when:
+    - ansible_os_family == "Debian"
+    - not ssm_agent_binary.stat.exists
+
+- name: Create SSM Agent configuration directory
+  ansible.builtin.file:
+    path: /etc/amazon/ssm
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure SSM Agent
+  ansible.builtin.template:
+    src: amazon-ssm-agent.json.j2
+    dest: /etc/amazon/ssm/amazon-ssm-agent.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ssm-agent
+
+- name: Configure Session Manager preferences
+  ansible.builtin.template:
+    src: seelog.xml.j2
+    dest: /etc/amazon/ssm/seelog.xml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart ssm-agent
+
+- name: Ensure SSM Agent is enabled and running
+  ansible.builtin.service:
+    name: amazon-ssm-agent
+    state: started
+    enabled: true
+
+- name: Verify SSM Agent registration
+  ansible.builtin.command: amazon-ssm-agent -version
+  register: ssm_version
+  changed_when: false
+
+- name: Display SSM Agent version
+  ansible.builtin.debug:
+    msg: "SSM Agent version: {{ ssm_version.stdout }}"

@@ -1,0 +1,43 @@
+# Database Migration Tasks
+---
+- name: Run database migrations (Django)
+  ansible.builtin.command:
+    cmd: "{{ app_deploy_dir }}/shared/venv/bin/python manage.py migrate --noinput"
+    chdir: "{{ app_deploy_dir }}/current"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  environment: "{{ app_env_vars | default({}) }}"
+  when: app_framework == 'django'
+  register: migration_result
+  changed_when: "'No migrations to apply' not in migration_result.stdout"
+
+- name: Run database migrations (Rails)
+  ansible.builtin.command:
+    cmd: "bundle exec rake db:migrate"
+    chdir: "{{ app_deploy_dir }}/current"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  environment:
+    RAILS_ENV: "{{ app_rails_env | default('production') }}"
+  when: app_framework == 'rails'
+  register: migration_result
+  changed_when: true
+
+- name: Run database migrations (Laravel)
+  ansible.builtin.command:
+    cmd: "php artisan migrate --force"
+    chdir: "{{ app_deploy_dir }}/current"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  when: app_framework == 'laravel'
+  register: migration_result
+  changed_when: "'Nothing to migrate' not in migration_result.stdout"
+
+- name: Run database migrations (Custom command)
+  ansible.builtin.command:
+    cmd: "{{ app_migration_command }}"
+    chdir: "{{ app_deploy_dir }}/current"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  environment: "{{ app_env_vars | default({}) }}"
+  when: app_migration_command is defined

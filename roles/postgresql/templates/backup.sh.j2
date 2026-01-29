@@ -1,0 +1,81 @@
+#!/bin/bash
+# PostgreSQL Backup Script
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+set -euo pipefail
+
+# Configuration
+BACKUP_DIR="{{ postgresql_backup_directory }}"
+RETENTION_DAYS="{{ postgresql_backup_retention_days | default(7) }}"
+DATE=$(date +%Y%m%d_%H%M%S)
+HOSTNAME=$(hostname -f)
+{% if postgresql_backup_s3_bucket is defined %}
+S3_BUCKET="{{ postgresql_backup_s3_bucket }}"
+{% endif %}
+{% if postgresql_backup_encryption_key is defined %}
+ENCRYPTION_KEY="{{ postgresql_backup_encryption_key }}"
+{% endif %}
+
+# Databases to backup
+DATABASES=({% for db in postgresql_databases %}"{{ db.name }}" {% endfor %})
+
+# Logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Create backup directory if not exists
+mkdir -p "$BACKUP_DIR"
+
+log "Starting PostgreSQL backup..."
+
+# Backup each database
+for DB in "${DATABASES[@]}"; do
+    BACKUP_FILE="${BACKUP_DIR}/${DB}_${HOSTNAME}_${DATE}.sql"
+
+    log "Backing up database: $DB"
+
+    # Create backup
+    pg_dump -U postgres -Fc "$DB" > "${BACKUP_FILE}.dump"
+
+    # Also create SQL format for easier restoration
+    pg_dump -U postgres "$DB" > "$BACKUP_FILE"
+
+    # Compress
+    gzip -f "$BACKUP_FILE"
+
+{% if postgresql_backup_encryption_key is defined %}
+    # Encrypt backup
+    log "Encrypting backup..."
+    openssl enc -aes-256-cbc -salt -pbkdf2 \
+        -in "${BACKUP_FILE}.gz" \
+        -out "${BACKUP_FILE}.gz.enc" \
+        -pass pass:"$ENCRYPTION_KEY"
+    rm "${BACKUP_FILE}.gz"
+    BACKUP_FILE="${BACKUP_FILE}.gz.enc"
+{% else %}
+    BACKUP_FILE="${BACKUP_FILE}.gz"
+{% endif %}
+
+{% if postgresql_backup_s3_bucket is defined %}
+    # Upload to S3
+    log "Uploading to S3..."
+    aws s3 cp "$BACKUP_FILE" "s3://${S3_BUCKET}/postgresql/$(basename $BACKUP_FILE)"
+    aws s3 cp "${BACKUP_FILE%.sql*}.dump" "s3://${S3_BUCKET}/postgresql/$(basename ${BACKUP_FILE%.sql*}.dump)"
+{% endif %}
+
+    log "Backup completed: $BACKUP_FILE"
+done
+
+# Backup global objects (roles, tablespaces)
+log "Backing up global objects..."
+pg_dumpall -U postgres --globals-only > "${BACKUP_DIR}/globals_${HOSTNAME}_${DATE}.sql"
+gzip -f "${BACKUP_DIR}/globals_${HOSTNAME}_${DATE}.sql"
+
+# Cleanup old backups
+log "Cleaning up backups older than ${RETENTION_DAYS} days..."
+find "$BACKUP_DIR" -name "*.sql.gz*" -mtime +${RETENTION_DAYS} -delete
+find "$BACKUP_DIR" -name "*.dump" -mtime +${RETENTION_DAYS} -delete
+
+log "Backup process completed successfully!"

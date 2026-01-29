@@ -1,0 +1,43 @@
+# Fail2ban Nginx Jails
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+[nginx-http-auth]
+enabled = true
+filter = nginx-http-auth
+port = http,https
+logpath = /var/log/nginx/*error.log
+maxretry = {{ fail2ban_nginx_maxretry | default(5) }}
+bantime = {{ fail2ban_nginx_bantime | default('1h') }}
+
+[nginx-botsearch]
+enabled = true
+filter = nginx-botsearch
+port = http,https
+logpath = /var/log/nginx/*access.log
+maxretry = 2
+bantime = {{ fail2ban_nginx_bantime | default('1h') }}
+
+[nginx-badbots]
+enabled = true
+filter = nginx-badbots
+port = http,https
+logpath = /var/log/nginx/*access.log
+maxretry = 2
+bantime = {{ fail2ban_nginx_bantime | default('1h') }}
+
+[nginx-noscript]
+enabled = true
+filter = nginx-noscript
+port = http,https
+logpath = /var/log/nginx/*access.log
+maxretry = 6
+bantime = {{ fail2ban_nginx_bantime | default('1h') }}
+
+[nginx-req-limit]
+enabled = true
+filter = nginx-limit-req
+port = http,https
+logpath = /var/log/nginx/*error.log
+maxretry = 10
+bantime = {{ fail2ban_nginx_bantime | default('1h') }}

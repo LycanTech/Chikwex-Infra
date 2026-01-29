@@ -1,0 +1,49 @@
+# SELinux Configuration Tasks
+---
+- name: Install SELinux packages
+  ansible.builtin.yum:
+    name:
+      - libselinux-python3
+      - policycoreutils-python-utils
+      - selinux-policy-targeted
+    state: present
+
+- name: Set SELinux mode
+  ansible.posix.selinux:
+    policy: targeted
+    state: "{{ security_selinux_mode | default('enforcing') }}"
+  register: selinux_result
+
+- name: Configure SELinux booleans
+  ansible.posix.seboolean:
+    name: "{{ item.name }}"
+    state: "{{ item.state | default(true) }}"
+    persistent: true
+  loop: "{{ selinux_booleans | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Configure SELinux file contexts
+  community.general.sefcontext:
+    target: "{{ item.target }}"
+    setype: "{{ item.setype }}"
+    state: present
+  loop: "{{ selinux_fcontexts | default([]) }}"
+  loop_control:
+    label: "{{ item.target }}"
+
+- name: Apply SELinux file contexts
+  ansible.builtin.command: "restorecon -Rv {{ item.target }}"
+  loop: "{{ selinux_fcontexts | default([]) }}"
+  loop_control:
+    label: "{{ item.target }}"
+  changed_when: false
+  when: selinux_fcontexts is defined and selinux_fcontexts | length > 0
+
+- name: Reboot if SELinux state changed
+  ansible.builtin.reboot:
+    msg: "Rebooting due to SELinux state change"
+    reboot_timeout: 300
+  when:
+    - selinux_result.reboot_required | default(false)
+    - security_selinux_allow_reboot | default(false)

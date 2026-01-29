@@ -1,0 +1,32 @@
+# Ansible Vault Example File
+# Copy this to vault.yml and encrypt with: ansible-vault encrypt vault.yml
+#
+# IMPORTANT: Never commit the actual vault.yml to version control!
+---
+
+# AWS Credentials (if not using IAM roles)
+vault_aws_account_id: "123456789012"
+vault_aws_access_key: "AKIAIOSFODNN7EXAMPLE"
+vault_aws_secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+# SSH Keys
+vault_admin_ssh_public_key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC... admin@example"
+
+# Database Credentials
+vault_postgresql_admin_password: "CHANGE_ME_SuperSecureDBPassword123!"
+vault_postgresql_app_password: "CHANGE_ME_AppUserPassword456!"
+
+# Application Secrets
+vault_app_secret_key: "CHANGE_ME_django-secret-key"
+vault_app_jwt_secret: "CHANGE_ME_jwt-secret-key"
+
+# SSL/TLS Certificates (Base64 encoded or paths)
+vault_ssl_certificate: |
+  -----BEGIN CERTIFICATE-----
+  YOUR_CERTIFICATE_HERE
+  -----END CERTIFICATE-----
+
+vault_ssl_private_key: |
+  -----BEGIN PRIVATE KEY-----
+  YOUR_PRIVATE_KEY_HERE
+  -----END PRIVATE KEY-----

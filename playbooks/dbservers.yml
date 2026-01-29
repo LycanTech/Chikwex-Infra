@@ -1,0 +1,91 @@
+# Database Servers Playbook
+# Configures PostgreSQL database servers with replication and backup
+---
+- name: Configure database servers
+  hosts: dbservers
+  become: true
+  gather_facts: true
+
+  vars:
+    # Override firewall settings for database servers
+    firewall_allowed_ports:
+      - port: 5432
+        protocol: tcp
+        source: "10.0.0.0/8"
+        comment: "PostgreSQL from VPC"
+
+    firewall_allowed_services:
+      - ssh
+
+    # Enable database backups
+    postgresql_backup_enabled: true
+
+  pre_tasks:
+    - name: Display database server info
+      ansible.builtin.debug:
+        msg: "Configuring database server: {{ inventory_hostname }}"
+
+    - name: Check available disk space
+      ansible.builtin.shell: df -h {{ postgresql_data_directory | dirname }} | tail -1 | awk '{print $5}'
+      register: disk_usage
+      changed_when: false
+
+    - name: Warn if disk space is low
+      ansible.builtin.debug:
+        msg: "WARNING: Disk usage is {{ disk_usage.stdout }} - consider expanding storage"
+      when: disk_usage.stdout | regex_replace('%', '') | int > 80
+
+  roles:
+    - role: postgresql
+      tags:
+        - postgresql
+        - database
+
+  post_tasks:
+    - name: Verify PostgreSQL is running
+      ansible.builtin.service:
+        name: "postgresql-{{ postgresql_version }}"
+        state: started
+      register: pg_status
+
+    - name: Check PostgreSQL connectivity
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_ping:
+        db: postgres
+      register: pg_ping
+
+    - name: Display PostgreSQL status
+      ansible.builtin.debug:
+        msg: |
+          PostgreSQL Status: {{ 'Running' if pg_status.state == 'started' else 'Not Running' }}
+          Connection Test: {{ 'Passed' if pg_ping.is_available else 'Failed' }}
+
+    - name: Get PostgreSQL version
+      become: true
+      become_user: postgres
+      ansible.builtin.command: psql -c "SELECT version();" -t
+      register: pg_version
+      changed_when: false
+
+    - name: Display PostgreSQL version
+      ansible.builtin.debug:
+        msg: "PostgreSQL Version: {{ pg_version.stdout | trim }}"
+
+    - name: Verify databases exist
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_info:
+        filter:
+          - databases
+      register: pg_databases
+
+    - name: Display configured databases
+      ansible.builtin.debug:
+        msg: "Databases: {{ pg_databases.databases.keys() | list }}"
+
+  handlers:
+    - name: Reload postgresql after all tasks
+      ansible.builtin.service:
+        name: "postgresql-{{ postgresql_version }}"
+        state: reloaded

@@ -1,0 +1,70 @@
+# Nginx SSL Configuration Tasks
+---
+- name: Deploy SSL certificate
+  ansible.builtin.copy:
+    content: "{{ vault_ssl_certificate }}"
+    dest: "{{ nginx_ssl_certificate }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: vault_ssl_certificate is defined
+  notify: Reload nginx
+
+- name: Deploy SSL private key
+  ansible.builtin.copy:
+    content: "{{ vault_ssl_private_key }}"
+    dest: "{{ nginx_ssl_certificate_key }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: vault_ssl_private_key is defined
+  notify: Reload nginx
+
+- name: Generate Diffie-Hellman parameters
+  community.crypto.openssl_dhparam:
+    path: /etc/nginx/ssl/dhparam.pem
+    size: 2048
+  when: nginx_generate_dhparam | default(true)
+
+- name: Check if Let's Encrypt certificates should be used
+  ansible.builtin.stat:
+    path: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
+  register: letsencrypt_cert
+
+- name: Use Let's Encrypt certificates if available
+  ansible.builtin.set_fact:
+    nginx_ssl_certificate: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
+    nginx_ssl_certificate_key: "/etc/letsencrypt/live/{{ nginx_server_name }}/privkey.pem"
+  when:
+    - nginx_use_letsencrypt | default(false)
+    - letsencrypt_cert.stat.exists
+
+- name: Install certbot for Let's Encrypt
+  ansible.builtin.package:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+  when: nginx_use_letsencrypt | default(false)
+
+- name: Obtain Let's Encrypt certificate
+  ansible.builtin.command: >
+    certbot certonly --nginx
+    -d {{ nginx_server_name }}
+    --non-interactive
+    --agree-tos
+    --email {{ nginx_letsencrypt_email | default('admin@' + nginx_server_name) }}
+  args:
+    creates: "/etc/letsencrypt/live/{{ nginx_server_name }}/fullchain.pem"
+  when:
+    - nginx_use_letsencrypt | default(false)
+    - not letsencrypt_cert.stat.exists
+  notify: Reload nginx
+
+- name: Setup Let's Encrypt auto-renewal cron job
+  ansible.builtin.cron:
+    name: "Renew Let's Encrypt certificates"
+    minute: "0"
+    hour: "3"
+    job: "certbot renew --quiet --post-hook 'systemctl reload nginx'"
+  when: nginx_use_letsencrypt | default(false)

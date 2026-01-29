@@ -1,0 +1,80 @@
+# Global Variables for All Hosts
+# These variables apply to every host in the inventory
+---
+# Project Information
+project_name: chikwex-infra
+project_owner: "Chikwe Azinge"
+project_domain: chikwex.example.com
+
+# AWS Configuration
+aws_region: us-east-1
+aws_account_id: "{{ vault_aws_account_id }}"
+
+# Environment (can be overridden per environment)
+environment_name: "{{ lookup('env', 'ANSIBLE_ENV') | default('dev', true) }}"
+
+# System Configuration
+system_timezone: America/New_York
+system_locale: en_US.UTF-8
+
+# SSH Configuration
+ssh_port: 22
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_pubkey_authentication: "yes"
+
+# Common Packages to install on all hosts
+common_packages:
+  - vim
+  - curl
+  - wget
+  - htop
+  - tree
+  - jq
+  - unzip
+  - git
+  - net-tools
+  - telnet
+  - nmap-ncat
+  - python3-pip
+  - awscli
+
+# User Management
+admin_users:
+  - username: chikwex-admin
+    uid: 1100
+    groups:
+      - wheel
+      - docker
+    ssh_keys:
+      - "{{ vault_admin_ssh_public_key }}"
+    shell: /bin/bash
+
+# NTP Configuration
+ntp_servers:
+  - 169.254.169.123  # AWS Time Sync Service
+  - 0.amazon.pool.ntp.org
+  - 1.amazon.pool.ntp.org
+
+# Log Configuration
+log_retention_days: 30
+cloudwatch_log_group: "/chikwex-infra/{{ environment_name }}"
+
+# Security Settings
+security_fail2ban_enabled: true
+security_firewall_enabled: true
+security_selinux_mode: enforcing
+
+# Monitoring
+monitoring_enabled: true
+cloudwatch_agent_enabled: true
+
+# Tags for AWS resources created by Ansible
+default_tags:
+  Project: "{{ project_name }}"
+  Environment: "{{ environment_name }}"
+  ManagedBy: ansible
+  Owner: "{{ project_owner }}"
+
+# Ansible Configuration
+ansible_python_interpreter: /usr/bin/python3

@@ -1,0 +1,29 @@
+#!/bin/bash
+# PostgreSQL WAL Archive Script
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+set -euo pipefail
+
+WAL_FILE="$1"
+WAL_NAME="$2"
+ARCHIVE_DIR="{{ postgresql_backup_directory }}/wal_archive"
+{% if postgresql_backup_s3_bucket is defined %}
+S3_BUCKET="{{ postgresql_backup_s3_bucket }}"
+{% endif %}
+
+# Create archive directory
+mkdir -p "$ARCHIVE_DIR"
+
+# Copy WAL file to archive
+cp "$WAL_FILE" "${ARCHIVE_DIR}/${WAL_NAME}"
+
+# Compress
+gzip -f "${ARCHIVE_DIR}/${WAL_NAME}"
+
+{% if postgresql_backup_s3_bucket is defined %}
+# Upload to S3
+aws s3 cp "${ARCHIVE_DIR}/${WAL_NAME}.gz" "s3://${S3_BUCKET}/postgresql/wal/${WAL_NAME}.gz"
+{% endif %}
+
+exit 0

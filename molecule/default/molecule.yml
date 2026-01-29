@@ -1,0 +1,121 @@
+# Molecule Configuration
+# Default scenario for testing Ansible roles
+---
+dependency:
+  name: galaxy
+  options:
+    requirements-file: requirements.yml
+
+driver:
+  name: docker
+
+platforms:
+  - name: amazonlinux2023
+    image: amazonlinux:2023
+    pre_build_image: true
+    command: /sbin/init
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    tmpfs:
+      - /run
+      - /tmp
+    groups:
+      - all
+      - webservers
+
+  - name: rockylinux9
+    image: rockylinux:9
+    pre_build_image: true
+    command: /sbin/init
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    tmpfs:
+      - /run
+      - /tmp
+    groups:
+      - all
+      - dbservers
+
+  - name: ubuntu2204
+    image: ubuntu:22.04
+    pre_build_image: true
+    command: /lib/systemd/systemd
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    tmpfs:
+      - /run
+      - /tmp
+    groups:
+      - all
+      - webservers
+
+provisioner:
+  name: ansible
+  env:
+    ANSIBLE_ROLES_PATH: "../../roles"
+  inventory:
+    group_vars:
+      all:
+        ansible_python_interpreter: /usr/bin/python3
+        environment_name: test
+        project_name: chikwex-infra-test
+        system_timezone: UTC
+
+        # Disable AWS-specific features for testing
+        aws_ssm_enabled: false
+        aws_cloudwatch_enabled: false
+        aws_secrets_manager_enabled: false
+
+        # Test admin user
+        admin_users:
+          - username: test-admin
+            uid: 1100
+            groups:
+              - wheel
+            ssh_keys:
+              - "ssh-rsa AAAAB3... test@molecule"
+
+      webservers:
+        nginx_ssl_enabled: false
+        nginx_server_name: test.example.com
+
+      dbservers:
+        postgresql_version: "15"
+        postgresql_listen_addresses: "127.0.0.1"
+        postgresql_databases:
+          - name: test_db
+            owner: test_user
+        postgresql_users:
+          - name: test_user
+            password: test_password
+            role_attr_flags: CREATEDB
+
+  playbooks:
+    converge: converge.yml
+    verify: verify.yml
+
+verifier:
+  name: ansible
+
+scenario:
+  name: default
+  test_sequence:
+    - dependency
+    - lint
+    - cleanup
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - side_effect
+    - verify
+    - cleanup
+    - destroy

@@ -1,0 +1,70 @@
+# Molecule Converge Playbook
+# Applies roles to test instances
+---
+- name: Converge - Apply common role
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Install Python (Amazon Linux)
+      ansible.builtin.raw: yum install -y python3
+      changed_when: false
+      when: ansible_distribution == "Amazon"
+
+    - name: Install Python (Ubuntu)
+      ansible.builtin.raw: apt-get update && apt-get install -y python3
+      changed_when: false
+      when: ansible_distribution == "Ubuntu"
+
+    - name: Gather facts after Python install
+      ansible.builtin.setup:
+
+  roles:
+    - role: common
+      tags:
+        - common
+
+
+- name: Converge - Apply security role
+  hosts: all
+  become: true
+
+  vars:
+    # Disable SELinux for container testing
+    security_selinux_enabled: false
+    # Skip auditd in containers
+    security_auditd_enabled: false
+    # Skip auto updates in tests
+    security_auto_updates_enabled: false
+
+  roles:
+    - role: security
+      tags:
+        - security
+
+
+- name: Converge - Apply nginx role to webservers
+  hosts: webservers
+  become: true
+
+  vars:
+    nginx_ssl_enabled: false
+
+  roles:
+    - role: nginx
+      tags:
+        - nginx
+
+
+- name: Converge - Apply postgresql role to dbservers
+  hosts: dbservers
+  become: true
+
+  vars:
+    postgresql_version: "15"
+
+  roles:
+    - role: postgresql
+      tags:
+        - postgresql

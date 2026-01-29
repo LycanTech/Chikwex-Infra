@@ -1,0 +1,16 @@
+# Sudoers configuration for {{ item.username }}
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+{% if item.sudo_nopasswd | default(true) %}
+{{ item.username }} ALL=(ALL) NOPASSWD: ALL
+{% else %}
+{{ item.username }} ALL=(ALL) ALL
+{% endif %}
+
+# Allow specific commands without password (if defined)
+{% if item.sudo_commands is defined %}
+{% for cmd in item.sudo_commands %}
+{{ item.username }} ALL=(ALL) NOPASSWD: {{ cmd }}
+{% endfor %}
+{% endif %}

@@ -1,0 +1,148 @@
+# Database Servers Group Variables
+---
+# PostgreSQL Configuration
+postgresql_version: "15"
+postgresql_data_directory: /var/lib/pgsql/{{ postgresql_version }}/data
+postgresql_config_directory: /var/lib/pgsql/{{ postgresql_version }}/data
+postgresql_bin_directory: /usr/pgsql-{{ postgresql_version }}/bin
+
+# PostgreSQL Superuser
+postgresql_admin_user: postgres
+postgresql_admin_password: "{{ vault_postgresql_admin_password }}"
+
+# PostgreSQL Network Configuration
+postgresql_listen_addresses: "*"
+postgresql_port: 5432
+postgresql_max_connections: 200
+
+# Memory Configuration (adjust based on instance type)
+postgresql_shared_buffers: "256MB"
+postgresql_effective_cache_size: "768MB"
+postgresql_work_mem: "4MB"
+postgresql_maintenance_work_mem: "64MB"
+
+# WAL Configuration
+postgresql_wal_level: replica
+postgresql_max_wal_senders: 5
+postgresql_wal_keep_size: "512MB"
+postgresql_archive_mode: "on"
+postgresql_archive_command: "/usr/local/bin/wal_archive.sh %p %f"
+
+# Checkpoint Configuration
+postgresql_checkpoint_completion_target: 0.9
+postgresql_checkpoint_timeout: "5min"
+
+# Logging
+postgresql_logging_collector: "on"
+postgresql_log_directory: "log"
+postgresql_log_filename: "postgresql-%Y-%m-%d_%H%M%S.log"
+postgresql_log_rotation_age: "1d"
+postgresql_log_rotation_size: "100MB"
+postgresql_log_min_duration_statement: 1000  # Log queries > 1 second
+postgresql_log_checkpoints: "on"
+postgresql_log_connections: "on"
+postgresql_log_disconnections: "on"
+postgresql_log_lock_waits: "on"
+
+# Databases to Create
+postgresql_databases:
+  - name: chikwex_app
+    owner: chikwex_user
+    encoding: UTF8
+    lc_collate: en_US.UTF-8
+    lc_ctype: en_US.UTF-8
+
+  - name: chikwex_app_test
+    owner: chikwex_user
+    encoding: UTF8
+    lc_collate: en_US.UTF-8
+    lc_ctype: en_US.UTF-8
+
+# Database Users to Create
+postgresql_users:
+  - name: chikwex_user
+    password: "{{ vault_postgresql_app_password }}"
+    role_attr_flags: CREATEDB,NOSUPERUSER
+
+  - name: readonly_user
+    password: "{{ vault_postgresql_app_password }}"
+    role_attr_flags: NOSUPERUSER,NOCREATEDB
+
+# Database Privileges
+postgresql_privs:
+  - database: chikwex_app
+    roles: chikwex_user
+    privs: ALL
+    type: database
+
+  - database: chikwex_app
+    roles: readonly_user
+    privs: SELECT
+    type: table
+    objs: ALL_IN_SCHEMA
+
+# pg_hba.conf entries
+postgresql_hba_entries:
+  - type: local
+    database: all
+    user: postgres
+    method: peer
+
+  - type: local
+    database: all
+    user: all
+    method: md5
+
+  - type: host
+    database: all
+    user: all
+    address: "127.0.0.1/32"
+    method: md5
+
+  - type: host
+    database: all
+    user: all
+    address: "10.0.0.0/8"
+    method: md5
+
+  - type: host
+    database: replication
+    user: replication
+    address: "10.0.0.0/8"
+    method: md5
+
+# Backup Configuration
+postgresql_backup_enabled: true
+postgresql_backup_directory: /var/backups/postgresql
+postgresql_backup_retention_days: 7
+postgresql_backup_s3_bucket: "chikwex-infra-backups-{{ environment_name }}"
+postgresql_backup_encryption_key: "{{ vault_backup_encryption_key }}"
+
+# Replication (for read replicas)
+postgresql_replication_enabled: false
+postgresql_replication_user: replication
+postgresql_replication_password: "{{ vault_postgresql_admin_password }}"
+
+# Extensions to Install
+postgresql_extensions:
+  - pg_stat_statements
+  - pgcrypto
+  - uuid-ossp
+  - pg_trgm
+
+# Firewall Rules for Database Servers
+dbserver_firewall_ports:
+  - port: 5432
+    protocol: tcp
+    source: "10.0.0.0/8"
+    comment: "PostgreSQL from VPC"
+  - port: 22
+    protocol: tcp
+    comment: "SSH"
+
+# Database Server Specific Packages
+dbserver_packages:
+  - postgresql{{ postgresql_version }}-server
+  - postgresql{{ postgresql_version }}-contrib
+  - python3-psycopg2
+  - pg_top

@@ -1,0 +1,32 @@
+# S3 Log Shipping Configuration Tasks
+---
+- name: Deploy log shipping script
+  ansible.builtin.template:
+    src: ship_logs_to_s3.sh.j2
+    dest: /opt/scripts/ship_logs_to_s3.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create log shipping state directory
+  ansible.builtin.file:
+    path: /var/lib/log-shipping
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure log shipping cron job
+  ansible.builtin.cron:
+    name: "Ship logs to S3"
+    minute: "*/{{ s3_log_shipping_interval | default(15) }}"
+    job: "/opt/scripts/ship_logs_to_s3.sh >> /var/log/s3-log-shipping.log 2>&1"
+    user: root
+
+- name: Configure logrotate for shipped logs
+  ansible.builtin.template:
+    src: logrotate_s3.j2
+    dest: /etc/logrotate.d/s3-shipping
+    owner: root
+    group: root
+    mode: "0644"

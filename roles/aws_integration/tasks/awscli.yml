@@ -1,0 +1,58 @@
+# AWS CLI Installation Tasks
+---
+- name: Check if AWS CLI v2 is installed
+  ansible.builtin.command: aws --version
+  register: awscli_version
+  changed_when: false
+  failed_when: false
+
+- name: Download AWS CLI v2 installer
+  ansible.builtin.get_url:
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    dest: /tmp/awscliv2.zip
+    mode: "0644"
+  when: awscli_version.rc != 0 or 'aws-cli/2' not in awscli_version.stdout
+
+- name: Install unzip for AWS CLI installation
+  ansible.builtin.package:
+    name: unzip
+    state: present
+
+- name: Extract AWS CLI installer
+  ansible.builtin.unarchive:
+    src: /tmp/awscliv2.zip
+    dest: /tmp
+    remote_src: true
+  when: awscli_version.rc != 0 or 'aws-cli/2' not in awscli_version.stdout
+
+- name: Install AWS CLI v2
+  ansible.builtin.command: /tmp/aws/install --update
+  args:
+    creates: /usr/local/bin/aws
+  when: awscli_version.rc != 0 or 'aws-cli/2' not in awscli_version.stdout
+
+- name: Clean up AWS CLI installer
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/awscliv2.zip
+    - /tmp/aws
+
+- name: Configure AWS CLI default region
+  ansible.builtin.template:
+    src: aws_config.j2
+    dest: /root/.aws/config
+    owner: root
+    group: root
+    mode: "0600"
+  when: aws_configure_cli | default(true)
+
+- name: Create AWS credentials directory for service user
+  ansible.builtin.file:
+    path: "/home/{{ aws_service_user | default('ec2-user') }}/.aws"
+    state: directory
+    owner: "{{ aws_service_user | default('ec2-user') }}"
+    group: "{{ aws_service_user | default('ec2-user') }}"
+    mode: "0700"
+  when: aws_service_user is defined

@@ -1,0 +1,81 @@
+# SSH Server Configuration
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+# Network
+Port {{ ssh_port }}
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# Host Keys
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+# Ciphers and Algorithms
+Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
+MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512,hmac-sha2-256
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256
+
+# Logging
+SyslogFacility AUTH
+LogLevel INFO
+
+# Authentication
+LoginGraceTime 60
+PermitRootLogin {{ ssh_permit_root_login }}
+StrictModes yes
+MaxAuthTries {{ ssh_max_auth_tries }}
+MaxSessions 10
+
+PubkeyAuthentication {{ ssh_pubkey_authentication }}
+AuthorizedKeysFile .ssh/authorized_keys
+
+PasswordAuthentication {{ ssh_password_authentication }}
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+# Kerberos
+KerberosAuthentication no
+
+# GSSAPI
+GSSAPIAuthentication no
+
+# PAM
+UsePAM yes
+
+# Forwarding
+AllowAgentForwarding {{ ssh_allow_agent_forwarding }}
+AllowTcpForwarding {{ ssh_allow_tcp_forwarding }}
+GatewayPorts no
+X11Forwarding {{ ssh_x11_forwarding }}
+PermitTunnel no
+
+# Session
+PrintMotd no
+PrintLastLog yes
+TCPKeepAlive yes
+PermitUserEnvironment no
+ClientAliveInterval {{ ssh_client_alive_interval }}
+ClientAliveCountMax {{ ssh_client_alive_count_max }}
+UseDNS no
+
+# Banner
+Banner none
+
+# Allow client to pass locale environment variables
+AcceptEnv LANG LC_*
+
+# Subsystems
+Subsystem sftp /usr/libexec/openssh/sftp-server
+
+{% if ssh_allowed_users is defined and ssh_allowed_users | length > 0 %}
+# Allowed Users
+AllowUsers {{ ssh_allowed_users | join(' ') }}
+{% endif %}
+
+{% if ssh_allowed_groups is defined and ssh_allowed_groups | length > 0 %}
+# Allowed Groups
+AllowGroups {{ ssh_allowed_groups | join(' ') }}
+{% endif %}

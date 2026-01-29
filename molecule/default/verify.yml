@@ -1,0 +1,170 @@
+# Molecule Verify Playbook
+# Validates that roles were applied correctly
+---
+- name: Verify common role
+  hosts: all
+  become: true
+  gather_facts: true
+
+  tasks:
+    - name: Verify timezone is set
+      ansible.builtin.command: timedatectl show --property=Timezone --value
+      register: timezone_result
+      changed_when: false
+      failed_when: timezone_result.stdout != 'UTC'
+
+    - name: Verify common packages are installed
+      ansible.builtin.package:
+        name: "{{ item }}"
+        state: present
+      check_mode: true
+      register: package_check
+      failed_when: package_check.changed
+      loop:
+        - vim
+        - curl
+        - wget
+        - git
+
+    - name: Verify chrony service is running
+      ansible.builtin.service:
+        name: chronyd
+        state: started
+      check_mode: true
+      register: chrony_check
+      failed_when: chrony_check.changed
+
+    - name: Verify sshd configuration
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        line: "PermitRootLogin no"
+        state: present
+      check_mode: true
+      register: ssh_check
+
+
+- name: Verify security role
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Verify fail2ban is installed
+      ansible.builtin.package:
+        name: fail2ban
+        state: present
+      check_mode: true
+      register: fail2ban_check
+      failed_when: fail2ban_check.changed
+
+    - name: Verify fail2ban service is running
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+      check_mode: true
+      register: fail2ban_service
+      failed_when: fail2ban_service.changed
+
+    - name: Verify firewall is configured (RHEL)
+      ansible.builtin.service:
+        name: firewalld
+        state: started
+      check_mode: true
+      register: firewall_check
+      when: ansible_os_family == "RedHat"
+
+
+- name: Verify nginx role
+  hosts: webservers
+  become: true
+
+  tasks:
+    - name: Verify nginx is installed
+      ansible.builtin.package:
+        name: nginx
+        state: present
+      check_mode: true
+      register: nginx_check
+      failed_when: nginx_check.changed
+
+    - name: Verify nginx service is running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+      check_mode: true
+      register: nginx_service
+      failed_when: nginx_service.changed
+
+    - name: Verify nginx configuration is valid
+      ansible.builtin.command: nginx -t
+      register: nginx_test
+      changed_when: false
+      failed_when: nginx_test.rc != 0
+
+    - name: Verify nginx responds on port 80
+      ansible.builtin.uri:
+        url: http://localhost:80
+        method: GET
+        status_code:
+          - 200
+          - 301
+          - 302
+          - 502
+      register: nginx_response
+      ignore_errors: true
+
+    - name: Verify nginx health endpoint
+      ansible.builtin.uri:
+        url: http://localhost:8080/health
+        method: GET
+        status_code: 200
+      register: health_response
+
+
+- name: Verify postgresql role
+  hosts: dbservers
+  become: true
+
+  tasks:
+    - name: Verify postgresql is installed
+      ansible.builtin.package:
+        name: postgresql15-server
+        state: present
+      check_mode: true
+      register: pg_check
+      failed_when: pg_check.changed
+      when: ansible_os_family == "RedHat"
+
+    - name: Verify postgresql service is running
+      ansible.builtin.service:
+        name: postgresql-15
+        state: started
+      check_mode: true
+      register: pg_service
+      when: ansible_os_family == "RedHat"
+
+    - name: Verify postgresql is listening
+      ansible.builtin.wait_for:
+        port: 5432
+        state: started
+        timeout: 5
+
+    - name: Verify database connectivity
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_ping:
+        db: postgres
+      register: pg_ping
+
+    - name: Verify test database exists
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_info:
+        filter:
+          - databases
+      register: pg_databases
+
+    - name: Assert test_db exists
+      ansible.builtin.assert:
+        that:
+          - "'test_db' in pg_databases.databases"
+        fail_msg: "test_db database was not created"

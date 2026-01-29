@@ -1,0 +1,20 @@
+---
+# Ansible Galaxy requirements
+collections:
+  # AWS collection for EC2 dynamic inventory and AWS modules
+  - name: amazon.aws
+    version: ">=7.0.0"
+
+  # Community general collection
+  - name: community.general
+    version: ">=8.0.0"
+
+  # PostgreSQL collection
+  - name: community.postgresql
+    version: ">=3.0.0"
+
+  # Community crypto for certificate management
+  - name: community.crypto
+    version: ">=2.0.0"
+
+roles: []

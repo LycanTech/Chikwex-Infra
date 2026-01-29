@@ -1,0 +1,101 @@
+# Firewall Configuration Tasks
+---
+- name: Install firewalld (RHEL/Amazon Linux)
+  ansible.builtin.yum:
+    name: firewalld
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install ufw (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  when: ansible_os_family == "Debian"
+
+# Firewalld configuration for RHEL-based systems
+- name: Ensure firewalld is enabled and running
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  when: ansible_os_family == "RedHat"
+
+- name: Set default firewalld zone
+  ansible.posix.firewalld:
+    zone: "{{ firewall_default_zone | default('public') }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  when: ansible_os_family == "RedHat"
+
+- name: Allow SSH through firewall
+  ansible.posix.firewalld:
+    service: ssh
+    permanent: true
+    immediate: true
+    state: enabled
+  when: ansible_os_family == "RedHat"
+
+- name: Configure firewalld ports
+  ansible.posix.firewalld:
+    port: "{{ item.port }}/{{ item.protocol | default('tcp') }}"
+    permanent: true
+    immediate: true
+    state: enabled
+    zone: "{{ item.zone | default('public') }}"
+  loop: "{{ firewall_allowed_ports | default([]) }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.protocol | default('tcp') }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Configure firewalld services
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ firewall_allowed_services | default(['ssh']) }}"
+  when: ansible_os_family == "RedHat"
+
+- name: Configure firewalld rich rules
+  ansible.posix.firewalld:
+    rich_rule: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ firewall_rich_rules | default([]) }}"
+  when: ansible_os_family == "RedHat"
+
+# UFW configuration for Debian-based systems
+- name: Set UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+  when: ansible_os_family == "Debian"
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ ssh_port | default(22) }}"
+    proto: tcp
+  when: ansible_os_family == "Debian"
+
+- name: Configure UFW rules
+  community.general.ufw:
+    rule: "{{ item.rule | default('allow') }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.protocol | default('tcp') }}"
+    from_ip: "{{ item.source | default('any') }}"
+    comment: "{{ item.comment | default('') }}"
+  loop: "{{ firewall_allowed_ports | default([]) }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.protocol | default('tcp') }}"
+  when: ansible_os_family == "Debian"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  when: ansible_os_family == "Debian"

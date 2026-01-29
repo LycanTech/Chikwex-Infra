@@ -1,0 +1,71 @@
+# Web Servers Playbook
+# Configures Nginx web servers with SSL, proxy settings, and security
+---
+- name: Configure web servers
+  hosts: webservers
+  become: true
+  gather_facts: true
+
+  vars:
+    # Override firewall settings for web servers
+    firewall_allowed_ports:
+      - port: 80
+        protocol: tcp
+        comment: "HTTP"
+      - port: 443
+        protocol: tcp
+        comment: "HTTPS"
+      - port: 8080
+        protocol: tcp
+        comment: "Health check"
+
+    firewall_allowed_services:
+      - ssh
+      - http
+      - https
+
+  pre_tasks:
+    - name: Display web server info
+      ansible.builtin.debug:
+        msg: "Configuring web server: {{ inventory_hostname }}"
+
+  roles:
+    - role: nginx
+      tags:
+        - nginx
+        - webserver
+
+  post_tasks:
+    - name: Verify Nginx is running
+      ansible.builtin.service:
+        name: nginx
+        state: started
+      register: nginx_status
+
+    - name: Test Nginx configuration
+      ansible.builtin.command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Display Nginx status
+      ansible.builtin.debug:
+        msg: |
+          Nginx Status: {{ 'Running' if nginx_status.state == 'started' else 'Not Running' }}
+          Config Test: {{ 'Passed' if nginx_test.rc == 0 else 'Failed' }}
+
+    - name: Wait for Nginx to respond
+      ansible.builtin.uri:
+        url: "http://localhost:8080/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      retries: 3
+      delay: 5
+      until: health_check.status == 200
+      ignore_errors: true
+
+  handlers:
+    - name: Reload nginx after all tasks
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

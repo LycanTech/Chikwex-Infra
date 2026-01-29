@@ -1,0 +1,16 @@
+# Sysctl Kernel Parameters Configuration
+---
+- name: Configure sysctl parameters
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-chikwex.conf
+    reload: true
+    state: present
+  loop: "{{ sysctl_settings | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Apply sysctl settings
+  ansible.builtin.command: sysctl --system
+  changed_when: false

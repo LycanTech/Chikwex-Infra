@@ -1,0 +1,25 @@
+# Health Check Endpoint
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+server {
+    listen 8080;
+    listen [::]:8080;
+    server_name localhost;
+
+    access_log off;
+
+    location {{ nginx_health_check_path | default('/health') }} {
+        return 200 '{{ nginx_health_check_response | default("OK") }}';
+        add_header Content-Type text/plain;
+    }
+
+    location /nginx_status {
+        stub_status on;
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+    }
+}

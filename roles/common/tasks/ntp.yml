@@ -1,0 +1,22 @@
+# NTP Configuration Tasks
+---
+- name: Install chrony
+  ansible.builtin.package:
+    name: chrony
+    state: present
+
+- name: Configure chrony
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony.conf
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  notify: Restart chrony
+
+- name: Ensure chrony is enabled and running
+  ansible.builtin.service:
+    name: chronyd
+    state: started
+    enabled: true

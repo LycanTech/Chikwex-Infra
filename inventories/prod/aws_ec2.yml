@@ -1,0 +1,101 @@
+# AWS EC2 Dynamic Inventory Configuration - Production Environment
+# This file enables automatic discovery of EC2 instances from AWS
+plugin: amazon.aws.aws_ec2
+
+# AWS Region Configuration - Production spans multiple regions
+regions:
+  - us-east-1
+  - us-west-2
+
+# AWS Authentication
+# aws_profile: chikwex-prod
+
+# Strict mode - fail if any region errors (enabled for prod)
+strict: true
+
+# Caching configuration
+cache: true
+cache_plugin: jsonfile
+cache_timeout: 600
+cache_connection: /tmp/aws_inventory_prod
+cache_prefix: aws_ec2_prod
+
+# Filter instances
+filters:
+  instance-state-name:
+    - running
+  "tag:Environment":
+    - prod
+    - production
+  "tag:Project":
+    - chikwex-infra
+
+# Keyed groups
+keyed_groups:
+  - key: instance_type
+    prefix: instance_type
+    separator: "_"
+
+  - key: placement.availability_zone
+    prefix: az
+    separator: "_"
+
+  - key: placement.region
+    prefix: region
+    separator: "_"
+
+  - key: tags.Environment
+    prefix: env
+    separator: "_"
+
+  - key: tags.Role
+    prefix: role
+    separator: "_"
+
+  - key: tags.Application
+    prefix: app
+    separator: "_"
+
+  - key: tags.Tier
+    prefix: tier
+    separator: "_"
+
+  - key: platform | default('linux')
+    prefix: os
+    separator: "_"
+
+# Groups based on conditional logic
+groups:
+  webservers: "'webserver' in (tags.Role | default(''))"
+  dbservers: "'database' in (tags.Role | default(''))"
+  appservers: "'application' in (tags.Role | default(''))"
+  cacheservers: "'cache' in (tags.Role | default(''))"
+  linux: "platform is not defined or platform != 'windows'"
+  amazon_linux: "'amazon' in (tags.OS | default('')) or 'amzn' in (image_id | default(''))"
+
+  # Production tier groups
+  frontend: "'frontend' in (tags.Tier | default(''))"
+  backend: "'backend' in (tags.Tier | default(''))"
+  data: "'data' in (tags.Tier | default(''))"
+
+# Compose variables
+compose:
+  ansible_host: private_ip_address
+  ansible_user: "'ec2-user' if 'amzn' in (image_id | default('')) else 'ubuntu' if 'ubuntu' in (tags.OS | default('')) else 'ec2-user'"
+
+  ec2_instance_id: instance_id
+  ec2_instance_type: instance_type
+  ec2_region: placement.region
+  ec2_availability_zone: placement.availability_zone
+  ec2_vpc_id: vpc_id
+  ec2_subnet_id: subnet_id
+  ec2_private_ip: private_ip_address
+  ec2_public_ip: public_ip_address | default('')
+  ec2_security_groups: security_groups | map(attribute='group_id') | list
+  ec2_tags: tags
+
+# Hostnames
+hostnames:
+  - tag:Name
+  - private-ip-address
+  - instance-id

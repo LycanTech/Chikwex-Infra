@@ -1,0 +1,122 @@
+# AWS EC2 Dynamic Inventory Configuration - Development Environment
+# This file enables automatic discovery of EC2 instances from AWS
+plugin: amazon.aws.aws_ec2
+
+# AWS Region Configuration
+regions:
+  - us-east-1
+
+# AWS Authentication (uses boto3 credential chain)
+# Options: environment variables, ~/.aws/credentials, IAM role
+# Uncomment below to specify explicit profile
+# aws_profile: chikwex-dev
+
+# Strict mode - fail if any region errors
+strict: false
+
+# Caching configuration for performance
+cache: true
+cache_plugin: jsonfile
+cache_timeout: 300
+cache_connection: /tmp/aws_inventory_dev
+cache_prefix: aws_ec2_dev
+
+# Filter instances to only include those with specific tags
+filters:
+  # Only include running instances
+  instance-state-name:
+    - running
+  # Filter by environment tag
+  "tag:Environment":
+    - dev
+    - development
+  # Filter by project tag
+  "tag:Project":
+    - chikwex-infra
+
+# Keyed groups - automatically create groups based on instance attributes
+keyed_groups:
+  # Group by instance type (e.g., t3_micro, t3_small)
+  - key: instance_type
+    prefix: instance_type
+    separator: "_"
+
+  # Group by availability zone (e.g., az_us_east_1a)
+  - key: placement.availability_zone
+    prefix: az
+    separator: "_"
+
+  # Group by Environment tag (e.g., env_dev, env_prod)
+  - key: tags.Environment
+    prefix: env
+    separator: "_"
+
+  # Group by Role tag (e.g., role_webserver, role_database)
+  - key: tags.Role
+    prefix: role
+    separator: "_"
+
+  # Group by Application tag
+  - key: tags.Application
+    prefix: app
+    separator: "_"
+
+  # Group by OS type based on platform
+  - key: platform | default('linux')
+    prefix: os
+    separator: "_"
+
+# Groups based on conditional logic
+groups:
+  # Web servers group
+  webservers: "'webserver' in (tags.Role | default(''))"
+
+  # Database servers group
+  dbservers: "'database' in (tags.Role | default(''))"
+
+  # Application servers group
+  appservers: "'application' in (tags.Role | default(''))"
+
+  # All Linux instances
+  linux: "platform is not defined or platform != 'windows'"
+
+  # Amazon Linux instances
+  amazon_linux: "'amazon' in (tags.OS | default('')) or 'amzn' in (image_id | default(''))"
+
+# Compose variables for each host
+compose:
+  # Use private IP for internal communication
+  ansible_host: private_ip_address
+
+  # Fallback to public IP if no private IP (for bastion hosts)
+  # ansible_host: public_ip_address | default(private_ip_address)
+
+  # Set the SSH user based on OS
+  ansible_user: "'ec2-user' if 'amzn' in (image_id | default('')) else 'ubuntu' if 'ubuntu' in (tags.OS | default('')) else 'ec2-user'"
+
+  # Instance metadata as host variables
+  ec2_instance_id: instance_id
+  ec2_instance_type: instance_type
+  ec2_region: placement.region
+  ec2_availability_zone: placement.availability_zone
+  ec2_vpc_id: vpc_id
+  ec2_subnet_id: subnet_id
+  ec2_private_ip: private_ip_address
+  ec2_public_ip: public_ip_address | default('')
+  ec2_security_groups: security_groups | map(attribute='group_id') | list
+  ec2_tags: tags
+
+# Hostnames - how to name hosts in inventory
+hostnames:
+  # Priority order for hostname selection
+  - tag:Name
+  - private-ip-address
+  - instance-id
+
+# Include/exclude specific instances
+# exclude_filters:
+#   - tag:ExcludeFromAnsible:
+#     - 'true'
+
+# Use the EC2 instance connect endpoint for SSH (if configured)
+# use_ssm_connection: true

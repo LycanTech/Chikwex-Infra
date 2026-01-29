@@ -1,0 +1,8 @@
+# System Limits Configuration
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+# <domain>      <type>  <item>         <value>
+{% for limit in system_limits %}
+{{ "%-15s" | format(limit.domain) }} {{ "%-6s" | format(limit.limit_type) }} {{ "%-14s" | format(limit.limit_item) }} {{ limit.value }}
+{% endfor %}

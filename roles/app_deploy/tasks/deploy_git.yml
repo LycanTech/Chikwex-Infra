@@ -1,0 +1,78 @@
+# Git-based Deployment Tasks
+---
+- name: Install Git
+  ansible.builtin.package:
+    name: git
+    state: present
+
+- name: Generate release timestamp
+  ansible.builtin.set_fact:
+    release_timestamp: "{{ ansible_date_time.epoch }}"
+    release_dir: "{{ app_deploy_dir }}/releases/{{ ansible_date_time.epoch }}"
+
+- name: Clone/update Git repository
+  ansible.builtin.git:
+    repo: "{{ app_git_repo }}"
+    dest: "{{ release_dir }}"
+    version: "{{ app_git_branch | default('main') }}"
+    depth: "{{ app_git_depth | default(1) }}"
+    force: true
+    accept_hostkey: true
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+
+- name: Get current commit SHA
+  ansible.builtin.command:
+    cmd: git rev-parse HEAD
+    chdir: "{{ release_dir }}"
+  register: git_commit
+  changed_when: false
+
+- name: Record deployment info
+  ansible.builtin.copy:
+    content: |
+      {
+        "version": "{{ app_version | default(git_commit.stdout[:8]) }}",
+        "commit": "{{ git_commit.stdout }}",
+        "branch": "{{ app_git_branch | default('main') }}",
+        "deployed_at": "{{ ansible_date_time.iso8601 }}",
+        "deployed_by": "ansible"
+      }
+    dest: "{{ release_dir }}/DEPLOYMENT.json"
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "0644"
+
+- name: Create shared directory symlinks
+  ansible.builtin.file:
+    src: "{{ app_deploy_dir }}/shared/{{ item }}"
+    dest: "{{ release_dir }}/{{ item }}"
+    state: link
+    force: true
+  loop: "{{ app_shared_dirs | default(['log', 'tmp']) }}"
+
+- name: Create shared config file symlinks
+  ansible.builtin.file:
+    src: "{{ app_deploy_dir }}/shared/config/{{ item | basename }}"
+    dest: "{{ release_dir }}/{{ item }}"
+    state: link
+    force: true
+  loop: "{{ app_shared_config_files | default([]) }}"
+  when: app_shared_config_files is defined
+
+- name: Update current symlink
+  ansible.builtin.file:
+    src: "{{ release_dir }}"
+    dest: "{{ app_deploy_dir }}/current"
+    state: link
+    force: true
+  notify:
+    - Restart application
+
+- name: Cleanup old releases
+  ansible.builtin.shell: |
+    cd {{ app_deploy_dir }}/releases && \
+    ls -1dt */ | tail -n +{{ app_keep_releases | default(5) + 1 }} | xargs -r rm -rf
+  args:
+    executable: /bin/bash
+  changed_when: false

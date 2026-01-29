@@ -1,0 +1,15 @@
+# Fail2ban SSH Jail
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+[sshd]
+enabled = true
+port = {{ ssh_port | default(22) }}
+filter = sshd
+logpath = /var/log/secure
+{% if ansible_os_family == "Debian" %}
+logpath = /var/log/auth.log
+{% endif %}
+maxretry = {{ fail2ban_ssh_maxretry | default(3) }}
+bantime = {{ fail2ban_ssh_bantime | default('1h') }}
+findtime = {{ fail2ban_ssh_findtime | default('10m') }}

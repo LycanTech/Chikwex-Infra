@@ -1,0 +1,38 @@
+# AWS Integration Role - Metadata
+---
+galaxy_info:
+  author: Chikwe Azinge
+  description: AWS integration including SSM, CloudWatch, and Secrets Manager
+  company: Chikwex Infrastructure
+
+  license: MIT
+
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Amazon
+      versions:
+        - "2023"
+        - "2"
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+
+  galaxy_tags:
+    - aws
+    - ssm
+    - cloudwatch
+    - secrets
+    - monitoring
+    - logging
+
+dependencies:
+  - role: common
+
+collections:
+  - amazon.aws

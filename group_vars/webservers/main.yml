@@ -1,0 +1,100 @@
+# Web Servers Group Variables
+---
+# Nginx Configuration
+nginx_version: "latest"
+nginx_worker_processes: auto
+nginx_worker_connections: 4096
+nginx_keepalive_timeout: 65
+nginx_client_max_body_size: "64M"
+
+# Server blocks
+nginx_server_name: "{{ project_domain }}"
+nginx_listen_port: 80
+nginx_listen_port_ssl: 443
+nginx_ssl_enabled: true
+
+# SSL Configuration
+nginx_ssl_certificate: /etc/nginx/ssl/server.crt
+nginx_ssl_certificate_key: /etc/nginx/ssl/server.key
+nginx_ssl_protocols: "TLSv1.2 TLSv1.3"
+nginx_ssl_ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384"
+nginx_ssl_prefer_server_ciphers: true
+nginx_ssl_session_cache: "shared:SSL:10m"
+nginx_ssl_session_timeout: "1d"
+
+# Proxy Settings (for upstream application servers)
+nginx_proxy_pass_url: "http://127.0.0.1:8000"
+nginx_proxy_connect_timeout: 60
+nginx_proxy_send_timeout: 60
+nginx_proxy_read_timeout: 60
+
+# Upstream Configuration
+nginx_upstreams:
+  - name: app_backend
+    strategy: least_conn
+    servers:
+      - "127.0.0.1:8000 weight=5"
+      - "127.0.0.1:8001 weight=3"
+    keepalive: 32
+
+# Static Files
+nginx_static_root: /var/www/static
+nginx_media_root: /var/www/media
+
+# Gzip Compression
+nginx_gzip_enabled: true
+nginx_gzip_types:
+  - text/plain
+  - text/css
+  - text/javascript
+  - application/json
+  - application/javascript
+  - application/x-javascript
+  - application/xml
+  - image/svg+xml
+
+# Rate Limiting
+nginx_rate_limit_enabled: true
+nginx_rate_limit_zone: "limit_req_zone $binary_remote_addr zone=req_limit:10m rate=10r/s"
+nginx_rate_limit_burst: 20
+
+# Security Headers
+nginx_security_headers:
+  X-Frame-Options: "SAMEORIGIN"
+  X-Content-Type-Options: "nosniff"
+  X-XSS-Protection: "1; mode=block"
+  Referrer-Policy: "strict-origin-when-cross-origin"
+  Content-Security-Policy: "default-src 'self'"
+
+# Access Logs
+nginx_access_log: /var/log/nginx/access.log
+nginx_error_log: /var/log/nginx/error.log
+nginx_log_format: |
+  '$remote_addr - $remote_user [$time_local] "$request" '
+  '$status $body_bytes_sent "$http_referer" '
+  '"$http_user_agent" "$http_x_forwarded_for" '
+  'rt=$request_time uct="$upstream_connect_time" '
+  'uht="$upstream_header_time" urt="$upstream_response_time"'
+
+# Health Check Endpoint
+nginx_health_check_path: /health
+nginx_health_check_response: "OK"
+
+# Firewall Rules for Web Servers
+webserver_firewall_ports:
+  - port: 80
+    protocol: tcp
+    comment: "HTTP"
+  - port: 443
+    protocol: tcp
+    comment: "HTTPS"
+  - port: 22
+    protocol: tcp
+    comment: "SSH"
+
+# Web Server Specific Packages
+webserver_packages:
+  - nginx
+  - openssl
+  - certbot
+  - python3-certbot-nginx

@@ -1,0 +1,17 @@
+# Nginx Log Rotation
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+/var/log/nginx/*.log {
+    daily
+    missingok
+    rotate {{ log_retention_days | default(14) }}
+    compress
+    delaycompress
+    notifempty
+    create 0640 nginx adm
+    sharedscripts
+    postrotate
+        /bin/kill -USR1 `cat /run/nginx.pid 2>/dev/null` 2>/dev/null || true
+    endscript
+}

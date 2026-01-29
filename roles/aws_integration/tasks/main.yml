@@ -1,0 +1,55 @@
+# AWS Integration Role - Main Tasks
+---
+- name: Include OS-specific variables
+  ansible.builtin.include_vars: "{{ item }}"
+  with_first_found:
+    - files:
+        - "{{ ansible_distribution | lower }}-{{ ansible_distribution_major_version }}.yml"
+        - "{{ ansible_distribution | lower }}.yml"
+        - "{{ ansible_os_family | lower }}.yml"
+      paths:
+        - vars
+      skip: true
+  tags:
+    - aws
+
+- name: Install AWS CLI
+  ansible.builtin.include_tasks: awscli.yml
+  tags:
+    - aws
+    - awscli
+
+- name: Configure SSM Agent
+  ansible.builtin.include_tasks: ssm.yml
+  when: aws_ssm_enabled | default(true)
+  tags:
+    - aws
+    - ssm
+
+- name: Configure CloudWatch Agent
+  ansible.builtin.include_tasks: cloudwatch.yml
+  when: aws_cloudwatch_enabled | default(true)
+  tags:
+    - aws
+    - cloudwatch
+
+- name: Configure Secrets Manager integration
+  ansible.builtin.include_tasks: secrets_manager.yml
+  when: aws_secrets_manager_enabled | default(false)
+  tags:
+    - aws
+    - secrets
+
+- name: Configure S3 log shipping
+  ansible.builtin.include_tasks: s3_logs.yml
+  when: aws_s3_log_shipping_enabled | default(false)
+  tags:
+    - aws
+    - s3
+    - logs
+
+- name: Configure EC2 instance metadata
+  ansible.builtin.include_tasks: metadata.yml
+  tags:
+    - aws
+    - metadata

@@ -1,0 +1,81 @@
+# Nginx Role - Default Variables
+---
+# Package Configuration
+nginx_packages:
+  - nginx
+  - openssl
+
+# Worker Configuration
+nginx_worker_processes: auto
+nginx_worker_connections: 4096
+
+# Timeouts
+nginx_keepalive_timeout: 65
+nginx_proxy_connect_timeout: 60
+nginx_proxy_send_timeout: 60
+nginx_proxy_read_timeout: 60
+
+# Request Limits
+nginx_client_max_body_size: "64M"
+
+# Server Configuration
+nginx_server_name: "_"
+nginx_listen_port: 80
+nginx_listen_port_ssl: 443
+
+# SSL Configuration
+nginx_ssl_enabled: false
+nginx_ssl_certificate: /etc/nginx/ssl/server.crt
+nginx_ssl_certificate_key: /etc/nginx/ssl/server.key
+nginx_ssl_protocols: "TLSv1.2 TLSv1.3"
+nginx_ssl_ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384"
+nginx_ssl_prefer_server_ciphers: true
+nginx_ssl_session_cache: "shared:SSL:10m"
+nginx_ssl_session_timeout: "1d"
+nginx_generate_dhparam: true
+nginx_use_letsencrypt: false
+
+# Proxy Configuration
+nginx_proxy_pass_url: "http://127.0.0.1:8000"
+
+# Upstream Configuration
+nginx_upstreams: []
+
+# Virtual Hosts
+nginx_vhosts: []
+
+# Static Files
+nginx_static_root: /var/www/static
+nginx_media_root: /var/www/media
+
+# Gzip Compression
+nginx_gzip_enabled: true
+nginx_gzip_types:
+  - text/plain
+  - text/css
+  - text/javascript
+  - application/json
+  - application/javascript
+  - application/x-javascript
+  - application/xml
+  - image/svg+xml
+
+# Rate Limiting
+nginx_rate_limit_enabled: false
+nginx_rate_limit_zone: "limit_req_zone $binary_remote_addr zone=req_limit:10m rate=10r/s"
+nginx_rate_limit_burst: 20
+
+# Security Headers
+nginx_security_headers:
+  X-Frame-Options: "SAMEORIGIN"
+  X-Content-Type-Options: "nosniff"
+  X-XSS-Protection: "1; mode=block"
+  Referrer-Policy: "strict-origin-when-cross-origin"
+
+# Logging
+nginx_access_log: /var/log/nginx/access.log
+nginx_error_log: /var/log/nginx/error.log
+
+# Health Check
+nginx_health_check_path: /health
+nginx_health_check_response: "OK"

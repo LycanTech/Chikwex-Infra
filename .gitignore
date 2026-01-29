@@ -1,0 +1,57 @@
+# Ansible
+*.retry
+ansible.log
+.vault_pass
+*.vault_pass
+
+# Secrets - NEVER commit these
+**/vault.yml
+!**/vault.yml.example
+*.pem
+*.key
+secrets/
+credentials/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+ENV/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Molecule
+molecule/**/molecule/.molecule/
+molecule/**/.cache/
+
+# Terraform state (if using terraform/)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Cache
+.cache/
+fact_cache/

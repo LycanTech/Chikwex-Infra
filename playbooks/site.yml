@@ -1,0 +1,56 @@
+# Site Playbook - Master Orchestration
+# This playbook configures the entire infrastructure
+---
+- name: Apply common configuration to all hosts
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Display target hosts
+      ansible.builtin.debug:
+        msg: "Configuring {{ inventory_hostname }} ({{ ansible_host }})"
+
+    - name: Verify connectivity
+      ansible.builtin.ping:
+
+  roles:
+    - role: common
+      tags:
+        - common
+        - base
+
+    - role: security
+      tags:
+        - security
+        - hardening
+
+    - role: aws_integration
+      tags:
+        - aws
+        - monitoring
+
+  post_tasks:
+    - name: Display completion message
+      ansible.builtin.debug:
+        msg: "Common configuration completed for {{ inventory_hostname }}"
+
+
+- name: Configure web servers
+  import_playbook: webservers.yml
+  tags:
+    - webservers
+
+
+- name: Configure database servers
+  import_playbook: dbservers.yml
+  tags:
+    - dbservers
+
+
+- name: Deploy applications
+  import_playbook: deploy.yml
+  tags:
+    - deploy
+    - app
+  when: deploy_app | default(false)

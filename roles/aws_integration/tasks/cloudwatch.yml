@@ -1,0 +1,66 @@
+# AWS CloudWatch Agent Configuration Tasks
+---
+- name: Check if CloudWatch Agent is installed
+  ansible.builtin.stat:
+    path: /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent
+  register: cw_agent_binary
+
+- name: Download CloudWatch Agent (RHEL/Amazon Linux)
+  ansible.builtin.yum:
+    name: "https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm"
+    state: present
+    disable_gpg_check: true
+  when:
+    - ansible_os_family == "RedHat"
+    - not cw_agent_binary.stat.exists
+
+- name: Download CloudWatch Agent (Debian/Ubuntu)
+  ansible.builtin.apt:
+    deb: "https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb"
+    state: present
+  when:
+    - ansible_os_family == "Debian"
+    - not cw_agent_binary.stat.exists
+
+- name: Create CloudWatch Agent configuration directory
+  ansible.builtin.file:
+    path: /opt/aws/amazon-cloudwatch-agent/etc
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy CloudWatch Agent configuration
+  ansible.builtin.template:
+    src: cloudwatch-agent-config.json.j2
+    dest: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart cloudwatch-agent
+
+- name: Configure CloudWatch Agent
+  ansible.builtin.command: >
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+    -a fetch-config
+    -m ec2
+    -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    -s
+  changed_when: false
+
+- name: Ensure CloudWatch Agent is enabled and running
+  ansible.builtin.service:
+    name: amazon-cloudwatch-agent
+    state: started
+    enabled: true
+
+- name: Verify CloudWatch Agent status
+  ansible.builtin.command: >
+    /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+    -a status
+  register: cw_status
+  changed_when: false
+
+- name: Display CloudWatch Agent status
+  ansible.builtin.debug:
+    msg: "{{ cw_status.stdout }}"

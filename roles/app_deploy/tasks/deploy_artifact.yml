@@ -1,0 +1,83 @@
+# Artifact-based Deployment Tasks
+---
+- name: Generate release timestamp
+  ansible.builtin.set_fact:
+    release_timestamp: "{{ ansible_date_time.epoch }}"
+    release_dir: "{{ app_deploy_dir }}/releases/{{ ansible_date_time.epoch }}"
+
+- name: Create release directory
+  ansible.builtin.file:
+    path: "{{ release_dir }}"
+    state: directory
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "0755"
+
+- name: Download artifact from URL
+  ansible.builtin.get_url:
+    url: "{{ app_artifact_url }}"
+    dest: "/tmp/{{ app_name }}-{{ app_version }}.{{ app_artifact_extension | default('tar.gz') }}"
+    mode: "0644"
+    headers: "{{ app_artifact_headers | default(omit) }}"
+  when: app_artifact_url is defined
+
+- name: Download artifact from S3
+  amazon.aws.s3_object:
+    bucket: "{{ app_s3_bucket }}"
+    object: "{{ app_s3_key }}"
+    dest: "/tmp/{{ app_name }}-{{ app_version }}.{{ app_artifact_extension | default('tar.gz') }}"
+    mode: get
+  when: app_s3_bucket is defined
+
+- name: Extract artifact
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ app_name }}-{{ app_version }}.{{ app_artifact_extension | default('tar.gz') }}"
+    dest: "{{ release_dir }}"
+    remote_src: true
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    extra_opts: "{{ app_unarchive_opts | default([]) }}"
+
+- name: Clean up downloaded artifact
+  ansible.builtin.file:
+    path: "/tmp/{{ app_name }}-{{ app_version }}.{{ app_artifact_extension | default('tar.gz') }}"
+    state: absent
+
+- name: Record deployment info
+  ansible.builtin.copy:
+    content: |
+      {
+        "version": "{{ app_version }}",
+        "artifact_url": "{{ app_artifact_url | default(app_s3_key) }}",
+        "deployed_at": "{{ ansible_date_time.iso8601 }}",
+        "deployed_by": "ansible"
+      }
+    dest: "{{ release_dir }}/DEPLOYMENT.json"
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "0644"
+
+- name: Create shared directory symlinks
+  ansible.builtin.file:
+    src: "{{ app_deploy_dir }}/shared/{{ item }}"
+    dest: "{{ release_dir }}/{{ item }}"
+    state: link
+    force: true
+  loop: "{{ app_shared_dirs | default(['log', 'tmp']) }}"
+
+- name: Update current symlink
+  ansible.builtin.file:
+    src: "{{ release_dir }}"
+    dest: "{{ app_deploy_dir }}/current"
+    state: link
+    force: true
+  notify:
+    - Restart application
+
+- name: Cleanup old releases
+  ansible.builtin.shell: |
+    cd {{ app_deploy_dir }}/releases && \
+    ls -1dt */ | tail -n +{{ app_keep_releases | default(5) + 1 }} | xargs -r rm -rf
+  args:
+    executable: /bin/bash
+  changed_when: false

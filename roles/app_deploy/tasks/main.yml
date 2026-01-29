@@ -1,0 +1,89 @@
+# App Deploy Role - Main Tasks
+---
+- name: Validate deployment parameters
+  ansible.builtin.assert:
+    that:
+      - app_name is defined
+      - app_version is defined or app_git_repo is defined
+    fail_msg: "app_name and either app_version or app_git_repo must be defined"
+  tags:
+    - app
+    - deploy
+
+- name: Create application user
+  ansible.builtin.user:
+    name: "{{ app_user | default(app_name) }}"
+    system: true
+    shell: /bin/bash
+    home: "{{ app_home_dir | default('/opt/' + app_name) }}"
+    create_home: true
+  tags:
+    - app
+    - user
+
+- name: Create application directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ app_user | default(app_name) }}"
+    group: "{{ app_group | default(app_name) }}"
+    mode: "0755"
+  loop:
+    - "{{ app_deploy_dir }}"
+    - "{{ app_deploy_dir }}/releases"
+    - "{{ app_deploy_dir }}/shared"
+    - "{{ app_deploy_dir }}/shared/config"
+    - "{{ app_deploy_dir }}/shared/log"
+    - "{{ app_deploy_dir }}/shared/tmp"
+  tags:
+    - app
+    - directories
+
+- name: Deploy from Git repository
+  ansible.builtin.include_tasks: deploy_git.yml
+  when: app_git_repo is defined
+  tags:
+    - app
+    - deploy
+    - git
+
+- name: Deploy from artifact
+  ansible.builtin.include_tasks: deploy_artifact.yml
+  when: app_artifact_url is defined
+  tags:
+    - app
+    - deploy
+    - artifact
+
+- name: Deploy application configuration
+  ansible.builtin.include_tasks: configure.yml
+  tags:
+    - app
+    - config
+
+- name: Setup application dependencies
+  ansible.builtin.include_tasks: dependencies.yml
+  when: app_install_dependencies | default(true)
+  tags:
+    - app
+    - dependencies
+
+- name: Run database migrations
+  ansible.builtin.include_tasks: migrations.yml
+  when: app_run_migrations | default(false)
+  tags:
+    - app
+    - migrations
+
+- name: Configure systemd service
+  ansible.builtin.include_tasks: service.yml
+  when: app_service_enabled | default(true)
+  tags:
+    - app
+    - service
+
+- name: Run post-deployment tasks
+  ansible.builtin.include_tasks: post_deploy.yml
+  tags:
+    - app
+    - post-deploy

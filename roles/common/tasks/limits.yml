@@ -1,0 +1,28 @@
+# System Limits Configuration Tasks
+---
+- name: Configure system limits
+  ansible.builtin.template:
+    src: limits.conf.j2
+    dest: /etc/security/limits.d/99-chikwex.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure PAM limits module is enabled
+  ansible.builtin.lineinfile:
+    path: /etc/pam.d/common-session
+    line: "session required pam_limits.so"
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Configure systemd default limits
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/system.conf
+    regexp: "^#?{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    state: present
+  loop:
+    - { key: "DefaultLimitNOFILE", value: "65536" }
+    - { key: "DefaultLimitNPROC", value: "65536" }
+    - { key: "DefaultLimitMEMLOCK", value: "infinity" }
+  notify: Reload systemd

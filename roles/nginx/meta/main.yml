@@ -1,0 +1,39 @@
+# Nginx Role - Metadata
+---
+galaxy_info:
+  author: Chikwe Azinge
+  description: Nginx web server installation and configuration
+  company: Chikwex Infrastructure
+
+  license: MIT
+
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Amazon
+      versions:
+        - "2023"
+        - "2"
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+  galaxy_tags:
+    - nginx
+    - webserver
+    - proxy
+    - ssl
+    - http
+    - loadbalancer
+
+dependencies:
+  - role: common

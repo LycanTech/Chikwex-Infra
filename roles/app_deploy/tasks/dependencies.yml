@@ -1,0 +1,57 @@
+# Application Dependencies Installation Tasks
+---
+# Python Dependencies
+- name: Install Python dependencies
+  ansible.builtin.pip:
+    requirements: "{{ app_deploy_dir }}/current/requirements.txt"
+    virtualenv: "{{ app_deploy_dir }}/shared/venv"
+    virtualenv_python: "{{ app_python_version | default('python3') }}"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  when: app_type == 'python'
+
+# Node.js Dependencies
+- name: Install Node.js
+  ansible.builtin.include_tasks: nodejs.yml
+  when: app_type == 'nodejs'
+
+- name: Install npm dependencies
+  community.general.npm:
+    path: "{{ app_deploy_dir }}/current"
+    production: "{{ app_npm_production | default(true) }}"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  when: app_type == 'nodejs'
+
+# Ruby Dependencies
+- name: Install Ruby dependencies with Bundler
+  community.general.bundler:
+    state: present
+    chdir: "{{ app_deploy_dir }}/current"
+    deployment_mode: true
+    exclude_groups: "{{ app_bundle_exclude_groups | default(['development', 'test']) }}"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  when: app_type == 'ruby'
+
+# Go Dependencies
+- name: Build Go application
+  ansible.builtin.command:
+    cmd: go build -o {{ app_name }} ./...
+    chdir: "{{ app_deploy_dir }}/current"
+  environment:
+    GOPATH: "{{ app_deploy_dir }}/shared/go"
+    GO111MODULE: "on"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  when: app_type == 'go'
+
+# Static Assets
+- name: Build static assets
+  ansible.builtin.command:
+    cmd: "{{ item }}"
+    chdir: "{{ app_deploy_dir }}/current"
+  become: true
+  become_user: "{{ app_user | default(app_name) }}"
+  loop: "{{ app_build_commands | default([]) }}"
+  when: app_build_commands is defined

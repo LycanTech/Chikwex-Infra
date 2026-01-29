@@ -1,0 +1,74 @@
+# PostgreSQL Replication Configuration Tasks
+---
+- name: Create replication user
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    name: "{{ postgresql_replication_user }}"
+    password: "{{ postgresql_replication_password }}"
+    role_attr_flags: REPLICATION,LOGIN
+    state: present
+  when: postgresql_role == 'primary'
+
+- name: Add replication entry to pg_hba.conf
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_config_directory }}/pg_hba.conf"
+    line: "host    replication     {{ postgresql_replication_user }}    {{ postgresql_replica_network | default('10.0.0.0/8') }}    md5"
+    state: present
+  notify: Reload postgresql
+  when: postgresql_role == 'primary'
+
+- name: Create replication slot
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_slot:
+    name: "{{ item }}"
+    slot_type: physical
+    state: present
+  loop: "{{ postgresql_replication_slots | default([]) }}"
+  when: postgresql_role == 'primary'
+
+- name: Stop PostgreSQL on replica
+  ansible.builtin.service:
+    name: "postgresql-{{ postgresql_version }}"
+    state: stopped
+  when: postgresql_role == 'replica'
+
+- name: Remove existing data directory on replica
+  ansible.builtin.file:
+    path: "{{ postgresql_data_directory }}"
+    state: absent
+  when:
+    - postgresql_role == 'replica'
+    - postgresql_replica_init | default(false)
+
+- name: Initialize replica from primary
+  become: true
+  become_user: postgres
+  ansible.builtin.command: >
+    pg_basebackup -h {{ postgresql_primary_host }}
+    -U {{ postgresql_replication_user }}
+    -D {{ postgresql_data_directory }}
+    -Fp -Xs -P -R
+  environment:
+    PGPASSWORD: "{{ postgresql_replication_password }}"
+  args:
+    creates: "{{ postgresql_data_directory }}/PG_VERSION"
+  when:
+    - postgresql_role == 'replica'
+    - postgresql_replica_init | default(false)
+
+- name: Configure standby signal
+  ansible.builtin.file:
+    path: "{{ postgresql_data_directory }}/standby.signal"
+    state: touch
+    owner: postgres
+    group: postgres
+    mode: "0600"
+  when: postgresql_role == 'replica'
+
+- name: Start PostgreSQL on replica
+  ansible.builtin.service:
+    name: "postgresql-{{ postgresql_version }}"
+    state: started
+  when: postgresql_role == 'replica'

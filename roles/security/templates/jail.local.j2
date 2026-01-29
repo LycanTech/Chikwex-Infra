@@ -1,0 +1,44 @@
+# Fail2ban Configuration
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+[DEFAULT]
+# Ban hosts for {{ fail2ban_bantime | default('1h') }}
+bantime = {{ fail2ban_bantime | default('1h') }}
+
+# Find banning patterns within {{ fail2ban_findtime | default('10m') }}
+findtime = {{ fail2ban_findtime | default('10m') }}
+
+# Number of failures before a ban
+maxretry = {{ fail2ban_maxretry | default(5) }}
+
+# Backend to use for detecting log modifications
+backend = {{ fail2ban_backend | default('auto') }}
+
+# Ban action
+{% if ansible_os_family == "RedHat" %}
+banaction = firewallcmd-rich-rules[actiontype=<multiport>]
+banaction_allports = firewallcmd-rich-rules[actiontype=<allports>]
+{% else %}
+banaction = ufw
+banaction_allports = ufw
+{% endif %}
+
+# Email notifications (if configured)
+{% if fail2ban_destemail is defined %}
+destemail = {{ fail2ban_destemail }}
+sender = {{ fail2ban_sender | default('fail2ban@' + ansible_fqdn) }}
+mta = {{ fail2ban_mta | default('sendmail') }}
+action = %(action_mwl)s
+{% else %}
+action = %(action_)s
+{% endif %}
+
+# Ignore IP addresses
+ignoreip = 127.0.0.1/8 ::1 {{ fail2ban_ignoreip | default('10.0.0.0/8') }}
+
+# Log level
+loglevel = {{ fail2ban_loglevel | default('INFO') }}
+
+# Log target
+logtarget = {{ fail2ban_logtarget | default('/var/log/fail2ban.log') }}

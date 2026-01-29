@@ -1,0 +1,51 @@
+# Security Role - Default Variables
+---
+# SELinux Configuration
+security_selinux_enabled: true
+security_selinux_mode: enforcing
+security_selinux_allow_reboot: false
+selinux_booleans: []
+selinux_fcontexts: []
+
+# Firewall Configuration
+security_firewall_enabled: true
+firewall_default_zone: public
+firewall_allowed_ports: []
+firewall_allowed_services:
+  - ssh
+firewall_rich_rules: []
+
+# Fail2ban Configuration
+security_fail2ban_enabled: true
+fail2ban_bantime: "1h"
+fail2ban_findtime: "10m"
+fail2ban_maxretry: 5
+fail2ban_backend: auto
+fail2ban_ignoreip: "10.0.0.0/8"
+fail2ban_loglevel: INFO
+fail2ban_logtarget: "/var/log/fail2ban.log"
+
+# Fail2ban SSH settings
+fail2ban_ssh_maxretry: 3
+fail2ban_ssh_bantime: "1h"
+fail2ban_ssh_findtime: "10m"
+
+# Fail2ban Nginx settings
+fail2ban_nginx_maxretry: 5
+fail2ban_nginx_bantime: "1h"
+
+# Fail2ban custom jails
+fail2ban_custom_jails: []
+fail2ban_custom_filters: []
+
+# Auditd Configuration
+security_auditd_enabled: true
+
+# Automatic Updates
+security_auto_updates_enabled: true
+auto_updates_security_only: true
+auto_updates_email_notifications: false
+
+# Cron access
+cron_allowed_users:
+  - root

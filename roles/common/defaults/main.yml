@@ -1,0 +1,125 @@
+# Common Role - Default Variables
+# These can be overridden in group_vars, host_vars, or playbooks
+---
+# Timezone
+system_timezone: UTC
+system_locale: en_US.UTF-8
+
+# NTP Configuration
+ntp_servers:
+  - 169.254.169.123
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+  - 2.pool.ntp.org
+
+# SSH Configuration
+ssh_port: 22
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_pubkey_authentication: "yes"
+ssh_x11_forwarding: "no"
+ssh_max_auth_tries: 3
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 2
+ssh_allow_agent_forwarding: "yes"
+ssh_allow_tcp_forwarding: "yes"
+
+# Common Packages
+common_packages:
+  - vim
+  - curl
+  - wget
+  - htop
+  - tree
+  - jq
+  - unzip
+  - git
+  - net-tools
+  - bind-utils
+  - telnet
+  - nmap-ncat
+  - python3
+  - python3-pip
+
+# Debian-specific package names
+common_packages_debian:
+  - vim
+  - curl
+  - wget
+  - htop
+  - tree
+  - jq
+  - unzip
+  - git
+  - net-tools
+  - dnsutils
+  - telnet
+  - netcat-openbsd
+  - python3
+  - python3-pip
+
+# Admin Users (override in group_vars/host_vars)
+admin_users: []
+
+# Deprecated users to remove
+deprecated_users: []
+
+# System Limits
+system_limits:
+  - domain: "*"
+    limit_type: soft
+    limit_item: nofile
+    value: 65536
+  - domain: "*"
+    limit_type: hard
+    limit_item: nofile
+    value: 65536
+  - domain: "*"
+    limit_type: soft
+    limit_item: nproc
+    value: 65536
+  - domain: "*"
+    limit_type: hard
+    limit_item: nproc
+    value: 65536
+  - domain: "root"
+    limit_type: soft
+    limit_item: nofile
+    value: 65536
+  - domain: "root"
+    limit_type: hard
+    limit_item: nofile
+    value: 65536
+
+# Sysctl Settings
+sysctl_settings:
+  # Network Performance
+  net.core.somaxconn: 65535
+  net.core.netdev_max_backlog: 65535
+  net.ipv4.tcp_max_syn_backlog: 65535
+  net.ipv4.ip_local_port_range: "1024 65535"
+  net.ipv4.tcp_tw_reuse: 1
+  net.ipv4.tcp_fin_timeout: 15
+
+  # Memory Management
+  vm.swappiness: 10
+  vm.dirty_ratio: 60
+  vm.dirty_background_ratio: 2
+
+  # Security
+  net.ipv4.conf.default.rp_filter: 1
+  net.ipv4.conf.all.rp_filter: 1
+  net.ipv4.conf.all.accept_redirects: 0
+  net.ipv4.conf.default.accept_redirects: 0
+  net.ipv4.conf.all.secure_redirects: 0
+  net.ipv4.conf.default.secure_redirects: 0
+  net.ipv4.icmp_echo_ignore_broadcasts: 1
+  net.ipv4.conf.all.log_martians: 1
+
+  # IPv6 Security
+  net.ipv6.conf.all.accept_redirects: 0
+  net.ipv6.conf.default.accept_redirects: 0
+
+# Hostname settings
+set_hostname: true
+configure_ssh_client: false

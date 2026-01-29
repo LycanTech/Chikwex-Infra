@@ -1,0 +1,43 @@
+# Security Role - Metadata
+---
+galaxy_info:
+  author: Chikwe Azinge
+  description: Security hardening including fail2ban, firewall, and auditd
+  company: Chikwex Infrastructure
+
+  license: MIT
+
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Amazon
+      versions:
+        - "2023"
+        - "2"
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+  galaxy_tags:
+    - security
+    - hardening
+    - firewall
+    - fail2ban
+    - selinux
+    - auditd
+
+dependencies:
+  - role: common
+
+collections:
+  - ansible.posix
+  - community.general

@@ -1,0 +1,23 @@
+# PostgreSQL Client Authentication Configuration File
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# "local" is for Unix domain socket connections only
+{% for entry in postgresql_hba_entries | default([]) %}
+{% if entry.type == 'local' %}
+{{ "%-7s" | format(entry.type) }} {{ "%-15s" | format(entry.database) }} {{ "%-15s" | format(entry.user) }} {{ " " * 23 }} {{ entry.method }}
+{% else %}
+{{ "%-7s" | format(entry.type) }} {{ "%-15s" | format(entry.database) }} {{ "%-15s" | format(entry.user) }} {{ "%-23s" | format(entry.address) }} {{ entry.method }}
+{% endif %}
+{% endfor %}
+
+{% if postgresql_hba_entries is not defined or postgresql_hba_entries | length == 0 %}
+# Default entries
+local   all             postgres                                peer
+local   all             all                                     md5
+host    all             all             127.0.0.1/32            md5
+host    all             all             ::1/128                 md5
+host    all             all             10.0.0.0/8              md5
+{% endif %}

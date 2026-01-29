@@ -1,0 +1,61 @@
+# Systemd Service Configuration Tasks
+---
+- name: Deploy systemd service file
+  ansible.builtin.template:
+    src: systemd.service.j2
+    dest: "/etc/systemd/system/{{ app_service_name | default(app_name) }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart application
+
+- name: Deploy systemd socket file (optional)
+  ansible.builtin.template:
+    src: systemd.socket.j2
+    dest: "/etc/systemd/system/{{ app_service_name | default(app_name) }}.socket"
+    owner: root
+    group: root
+    mode: "0644"
+  when: app_use_socket | default(false)
+  notify:
+    - Reload systemd
+    - Restart application
+
+- name: Enable and start application service
+  ansible.builtin.systemd:
+    name: "{{ app_service_name | default(app_name) }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Enable and start application socket
+  ansible.builtin.systemd:
+    name: "{{ app_service_name | default(app_name) }}.socket"
+    state: started
+    enabled: true
+  when: app_use_socket | default(false)
+
+- name: Deploy worker services
+  ansible.builtin.template:
+    src: worker.service.j2
+    dest: "/etc/systemd/system/{{ app_name }}-{{ item.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ app_workers | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Reload systemd
+
+- name: Enable and start worker services
+  ansible.builtin.systemd:
+    name: "{{ app_name }}-{{ item.name }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: "{{ app_workers | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"

@@ -1,0 +1,94 @@
+# Virtual Host: {{ item.server_name }}
+# Managed by Ansible - Do not edit manually
+# {{ ansible_managed }}
+
+{% if item.ssl_enabled | default(false) %}
+# HTTP to HTTPS redirect
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ item.server_name }}{% if item.server_aliases is defined %} {{ item.server_aliases | join(' ') }}{% endif %};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/letsencrypt;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS Server
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+{% else %}
+server {
+    listen {{ item.listen_port | default(80) }};
+    listen [::]:{{ item.listen_port | default(80) }};
+{% endif %}
+    server_name {{ item.server_name }}{% if item.server_aliases is defined %} {{ item.server_aliases | join(' ') }}{% endif %};
+
+{% if item.ssl_enabled | default(false) %}
+    ssl_certificate {{ item.ssl_certificate | default('/etc/nginx/ssl/' + item.server_name + '.crt') }};
+    ssl_certificate_key {{ item.ssl_certificate_key | default('/etc/nginx/ssl/' + item.server_name + '.key') }};
+    include /etc/nginx/snippets/ssl-params.conf;
+{% endif %}
+
+    root {{ item.root | default('/var/www/' + item.server_name) }};
+    index {{ item.index | default('index.html index.htm') }};
+
+    access_log /var/log/nginx/{{ item.server_name | replace('.', '_') }}_access.log main;
+    error_log /var/log/nginx/{{ item.server_name | replace('.', '_') }}_error.log;
+
+{% if item.locations is defined %}
+{% for location in item.locations %}
+    location {{ location.path }} {
+{% if location.proxy_pass is defined %}
+        proxy_pass {{ location.proxy_pass }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+{% elif location.alias is defined %}
+        alias {{ location.alias }};
+{% elif location.root is defined %}
+        root {{ location.root }};
+{% endif %}
+{% if location.try_files is defined %}
+        try_files {{ location.try_files }};
+{% endif %}
+{% if location.expires is defined %}
+        expires {{ location.expires }};
+{% endif %}
+{% if location.extra_config is defined %}
+{{ location.extra_config | indent(8, false) }}
+{% endif %}
+    }
+
+{% endfor %}
+{% else %}
+    location / {
+{% if item.proxy_pass is defined %}
+        proxy_pass {{ item.proxy_pass }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+{% else %}
+        try_files $uri $uri/ =404;
+{% endif %}
+    }
+{% endif %}
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+    }
+}

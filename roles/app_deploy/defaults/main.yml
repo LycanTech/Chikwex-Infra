@@ -1,0 +1,64 @@
+# App Deploy Role - Default Variables
+---
+# Application Identity
+# app_name: required
+# app_version: optional (derived from git if using git deploy)
+
+# Deployment Source (choose one)
+# app_git_repo: Git repository URL
+# app_artifact_url: Direct download URL
+# app_s3_bucket/app_s3_key: S3 artifact location
+
+# Git Settings
+app_git_branch: main
+app_git_depth: 1
+
+# Directory Structure
+app_deploy_dir: "/opt/{{ app_name }}"
+app_home_dir: "/opt/{{ app_name }}"
+
+# User/Group
+# app_user: defaults to app_name
+# app_group: defaults to app_name
+
+# Application Type
+app_type: python  # python, nodejs, ruby, go, custom
+
+# Framework (for specific framework tasks)
+# app_framework: django, rails, laravel, express, etc.
+
+# Shared Directories
+app_shared_dirs:
+  - log
+  - tmp
+
+# Release Management
+app_keep_releases: 5
+
+# Service Configuration
+app_service_enabled: true
+app_service_type: simple
+app_restart_policy: on-failure
+app_restart_sec: 5
+
+# Dependencies
+app_install_dependencies: true
+app_python_version: python3
+
+# Migrations
+app_run_migrations: false
+
+# Security
+app_security_hardening: true
+
+# Health Check
+# app_health_check_url: http://localhost:8000/health
+
+# Build Commands
+app_build_commands: []
+
+# Post-deploy Commands
+app_post_deploy_commands: []
+
+# Notifications
+app_notify_slack: false

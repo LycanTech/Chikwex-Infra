@@ -1,0 +1,17 @@
+# App Deploy Role - Handlers
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart application
+  ansible.builtin.systemd:
+    name: "{{ app_service_name | default(app_name) }}"
+    state: restarted
+  when: app_service_enabled | default(true)
+
+- name: Reload application
+  ansible.builtin.systemd:
+    name: "{{ app_service_name | default(app_name) }}"
+    state: reloaded
+  when: app_service_enabled | default(true)
