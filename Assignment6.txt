@@ -1,0 +1,40 @@
+Assignment 6: Container Orchestration with Docker Compose
+Topics Covered: Docker, Docker Compose, Multi-container apps, Networking, Volumes
+Scenario:
+Build and deploy a multi-tier application stack using Docker Compose.
+Requirements:
+●    Application Stack:
+    Frontend (React/Angular)
+    Backend API (Node.js/Python Flask)
+    Database (PostgreSQL/MongoDB)
+    Redis cache
+    Nginx reverse proxy
+●    Dockerfile Optimization:
+    Use multi-stage builds
+    Minimize image size
+    Implement proper layer caching
+    Use non-root users
+●    Docker Compose Configuration:
+    Define all services in docker-compose.yml
+    Configure custom networks
+    Implement health checks
+    Set resource limits
+●    Data Persistence:
+    Use named volumes for database
+    Bind mounts for development
+    Configure backup strategy
+●    Environment Management:
+    Create separate compose files for dev/staging/prod
+    Use .env files for configuration
+    Implement secrets management
+●    Networking:
+    Create custom bridge networks
+    Implement service discovery
+    Configure port mapping properly
+●    Monitoring:
+    Add logging configuration
+    Monitor container health
+●    Deliverables:
+    All Dockerfiles with comments
+    docker-compose.yml files for different environments
+    Documentation on building and running

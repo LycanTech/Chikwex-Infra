@@ -26,7 +26,6 @@ ssh_pubkey_authentication: "yes"
 # Common Packages to install on all hosts
 common_packages:
   - vim
-  - curl
   - wget
   - htop
   - tree
@@ -34,10 +33,8 @@ common_packages:
   - unzip
   - git
   - net-tools
-  - telnet
   - nmap-ncat
   - python3-pip
-  - awscli
 
 # User Management
 admin_users:

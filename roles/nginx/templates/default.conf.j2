@@ -75,8 +75,9 @@ server {
         access_log off;
     }
 
-    # Proxy to application
+    # Serve static content or proxy to application
     location / {
+{% if nginx_proxy_enabled | default(false) %}
 {% if nginx_upstreams is defined and nginx_upstreams | length > 0 %}
         proxy_pass http://{{ nginx_upstreams[0].name }};
 {% else %}
@@ -90,6 +91,9 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+{% else %}
+        try_files $uri $uri/ =404;
+{% endif %}
     }
 
     # Deny access to hidden files

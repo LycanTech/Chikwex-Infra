@@ -1,0 +1,43 @@
+Assignment 5: Infrastructure Automation with Ansible
+Topics Covered: Ansible, AWS Systems Manager, Dynamic Inventory, Roles, Vault
+Scenario:
+Automate infrastructure configuration and application deployment using Ansible.
+Requirements:
+●    Dynamic Inventory:
+    Configure AWS EC2 dynamic inventory
+    Use tags for grouping hosts
+    Create custom inventory scripts
+●    Playbook Development:
+    Create playbooks for:
+    Web server configuration (Nginx/Apache)
+    Database setup (PostgreSQL/MySQL)
+    Application deployment
+    Security hardening (fail2ban, firewall rules)
+●    Roles and Structure:
+    Organize code using Ansible roles
+    Use role dependencies
+    Implement proper directory structure
+●    Variables and Secrets:
+    Use group_vars and host_vars
+    Implement Ansible Vault for sensitive data
+    Use Jinja2 templates for configuration files
+●    Integration:
+    Integrate with AWS Systems Manager Session Manager
+    Use AWS Secrets Manager for credentials
+    Configure CloudWatch log shipping
+●    Idempotency:
+    Ensure all tasks are idempotent
+    Use handlers for service restarts
+    Implement proper conditionals
+●    Testing:
+    Use molecule for role testing
+    Implement CI/CD for Ansible playbooks
+    Document playbook execution
+●    Deliverables:
+    Complete Ansible project structure
+    Inventory configuration
+    Playbook execution report
+
+    AWS ACCESS KEYS
+    Secret Access Key: [REMOVED]
+    Access Key: [REMOVED]

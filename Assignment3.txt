@@ -1,0 +1,39 @@
+Assignment 3: Serverless Microservices Architecture
+Topics Covered: Lambda, API Gateway, DynamoDB, SQS, SNS, EventBridge, Step Functions
+Scenario:
+Build a serverless order processing system for an e-commerce platform.
+Requirements:
+●    API Layer:
+    Create REST API using API Gateway
+    Implement endpoints: POST /orders, GET /orders/{id}, GET /orders
+    Configure request validation and API keys
+    Enable CORS
+●    Business Logic:
+    Create Lambda functions for:
+     
+Order creation (validate, save to DynamoDB)
+Order processing (check inventory, process payment)
+Order notification (send email/SMS),
+Implement proper error handling and retries,
+,
+●    Data Layer:
+    Design DynamoDB table with proper partition and sort keys
+    Enable DynamoDB Streams
+    Implement GSI for querying by status
+●    Asynchronous Processing:
+    Use SQS queue for order processing
+    Configure DLQ for failed messages
+    Implement SNS topic for order notifications (fan-out)
+●    Orchestration:
+    Create Step Functions state machine for order workflow:
+    Validate order → Process payment → Update inventory → Send notification
+    Handle failures with retry logic and compensating transactions
+●    Observability:
+    Enable X-Ray tracing
+    Configure CloudWatch Logs with log insights queries
+    Create custom metrics
+●    Deliverables:
+    SAM or Serverless Framework template
+    API documentation (Swagger/OpenAPI)
+    Architecture diagram showing event flow
+    Testing results with Postman/curl

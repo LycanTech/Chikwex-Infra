@@ -1,0 +1,40 @@
+# ChikwexDockerApp - Development Override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  # Development: Enable hot reload for backend
+  backend:
+    build:
+      context: ./backend
+      target: production
+    environment:
+      - FLASK_DEBUG=true
+    volumes:
+      - ./backend:/app:ro
+    ports:
+      - "5000:5000"  # Expose for direct debugging
+
+  # Development: Expose database for direct access
+  db:
+    ports:
+      - "5432:5432"
+
+  # Development: Expose Redis for debugging
+  redis:
+    ports:
+      - "6379:6379"
+
+  # Development: Skip frontend build, use local dev server
+  frontend:
+    build:
+      context: ./frontend
+      target: build
+    command: npm start
+    volumes:
+      - ./frontend/src:/app/src:ro
+    ports:
+      - "3000:3000"
+    environment:
+      - CHOKIDAR_USEPOLLING=true

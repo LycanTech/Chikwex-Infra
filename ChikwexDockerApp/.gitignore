@@ -1,0 +1,28 @@
+# ChikwexDockerApp .gitignore
+
+# Environment files with secrets
+.env
+
+# Backup files
+backups/
+
+# Node modules
+frontend/node_modules/
+
+# Build artifacts
+frontend/build/
+
+# Python
+backend/__pycache__/
+backend/*.pyc
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker
+.docker/
+
+# Logs
+*.log

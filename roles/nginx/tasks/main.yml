@@ -45,13 +45,44 @@
     - /etc/nginx/sites-enabled
     - /etc/nginx/ssl
     - /etc/nginx/snippets
-    - "{{ nginx_static_root | default('/var/www/static') }}"
+    - "{{ nginx_static_root | default('/var/www/html') }}"
     - "{{ nginx_media_root | default('/var/www/media') }}"
     - /var/log/nginx
     - /var/cache/nginx
   tags:
     - nginx
     - directories
+
+- name: Deploy default index.html
+  ansible.builtin.copy:
+    dest: "{{ nginx_static_root | default('/var/www/html') }}/index.html"
+    content: |
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Welcome to Chikwex-Infra</title>
+          <style>
+              body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+              .container { background: white; padding: 40px; border-radius: 8px; max-width: 600px; margin: 0 auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              h1 { color: #333; }
+              .success { color: #28a745; font-weight: bold; }
+          </style>
+      </head>
+      <body>
+          <div class="container">
+              <h1>Chikwex-Infra</h1>
+              <p class="success">Nginx deployed successfully with Ansible!</p>
+              <p>Server: {{ inventory_hostname }}</p>
+              <p>Environment: {{ environment_name | default('dev') }}</p>
+          </div>
+      </body>
+      </html>
+    owner: nginx
+    group: nginx
+    mode: "0644"
+  tags:
+    - nginx
+    - content
 
 - name: Configure main Nginx configuration
   ansible.builtin.template:
