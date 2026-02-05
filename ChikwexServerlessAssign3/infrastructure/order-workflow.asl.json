@@ -1,0 +1,269 @@
+{
+  "Comment": "Order Processing Workflow with validation, payment, inventory update, and notification",
+  "StartAt": "ValidateOrder",
+  "States": {
+    "ValidateOrder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:getItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          },
+          "createdAt": {
+            "S.$": "$.createdAt"
+          }
+        }
+      },
+      "ResultPath": "$.orderData",
+      "Next": "CheckOrderExists",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "OrderValidationFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ]
+    },
+    "CheckOrderExists": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.orderData.Item",
+          "IsPresent": true,
+          "Next": "ProcessPayment"
+        }
+      ],
+      "Default": "OrderValidationFailed"
+    },
+    "ProcessPayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${OrderProcessingFunctionArn}",
+        "Payload": {
+          "action": "processPayment",
+          "orderId.$": "$.orderId",
+          "orderData.$": "$.orderData.Item"
+        }
+      },
+      "ResultPath": "$.paymentResult",
+      "Next": "CheckPaymentStatus",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PaymentFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ]
+    },
+    "CheckPaymentStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.paymentResult.Payload.status",
+          "StringEquals": "success",
+          "Next": "UpdateInventory"
+        }
+      ],
+      "Default": "PaymentFailed"
+    },
+    "UpdateInventory": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${OrderProcessingFunctionArn}",
+        "Payload": {
+          "action": "updateInventory",
+          "orderId.$": "$.orderId",
+          "items.$": "$.orderData.Item.items.L"
+        }
+      },
+      "ResultPath": "$.inventoryResult",
+      "Next": "CheckInventoryStatus",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "InventoryUpdateFailed",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 1.5
+        }
+      ]
+    },
+    "CheckInventoryStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.inventoryResult.Payload.status",
+          "StringEquals": "success",
+          "Next": "UpdateOrderStatus"
+        }
+      ],
+      "Default": "InventoryUpdateFailed"
+    },
+    "UpdateOrderStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          },
+          "createdAt": {
+            "S.$": "$.createdAt"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, #updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status",
+          "#updatedAt": "updatedAt"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "COMPLETED"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.updateResult",
+      "Next": "SendSuccessNotification"
+    },
+    "SendSuccessNotification": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OrderNotificationTopicArn}",
+        "Message": {
+          "orderId.$": "$.orderId",
+          "status": "COMPLETED",
+          "message": "Order processed successfully"
+        }
+      },
+      "Next": "OrderCompleted"
+    },
+    "OrderCompleted": {
+      "Type": "Succeed"
+    },
+    "OrderValidationFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OrderNotificationTopicArn}",
+        "Message": {
+          "orderId.$": "$.orderId",
+          "status": "VALIDATION_FAILED",
+          "error.$": "$.error"
+        }
+      },
+      "Next": "MarkOrderFailed"
+    },
+    "PaymentFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OrderNotificationTopicArn}",
+        "Message": {
+          "orderId.$": "$.orderId",
+          "status": "PAYMENT_FAILED",
+          "error.$": "$.error"
+        }
+      },
+      "Next": "MarkOrderFailed"
+    },
+    "InventoryUpdateFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${OrderNotificationTopicArn}",
+        "Message": {
+          "orderId.$": "$.orderId",
+          "status": "INVENTORY_FAILED",
+          "error.$": "$.error"
+        }
+      },
+      "Next": "CompensatePayment"
+    },
+    "CompensatePayment": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${OrderProcessingFunctionArn}",
+        "Payload": {
+          "action": "refundPayment",
+          "orderId.$": "$.orderId",
+          "paymentId.$": "$.paymentResult.Payload.paymentId"
+        }
+      },
+      "ResultPath": "$.compensationResult",
+      "Next": "MarkOrderFailed",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "MarkOrderFailed",
+          "ResultPath": "$.compensationError"
+        }
+      ]
+    },
+    "MarkOrderFailed": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OrdersTableName}",
+        "Key": {
+          "orderId": {
+            "S.$": "$.orderId"
+          },
+          "createdAt": {
+            "S.$": "$.createdAt"
+          }
+        },
+        "UpdateExpression": "SET #status = :status, #updatedAt = :updatedAt",
+        "ExpressionAttributeNames": {
+          "#status": "status",
+          "#updatedAt": "updatedAt"
+        },
+        "ExpressionAttributeValues": {
+          ":status": {
+            "S": "FAILED"
+          },
+          ":updatedAt": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "Next": "OrderFailed"
+    },
+    "OrderFailed": {
+      "Type": "Fail",
+      "Cause": "Order processing failed",
+      "Error": "OrderProcessingError"
+    }
+  }
+}

@@ -1,0 +1,392 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Serverless Order Processing System for E-Commerce Platform'
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 512
+    Tracing: Active  # Enable X-Ray tracing for all functions
+    Environment:
+      Variables:
+        ORDERS_TABLE: !Ref OrdersTable
+        ORDER_QUEUE_URL: !Ref OrderProcessingQueue
+        ORDER_TOPIC_ARN: !Ref OrderNotificationTopic
+        POWERTOOLS_SERVICE_NAME: order-processing
+        LOG_LEVEL: INFO
+
+Resources:
+  # ========================================
+  # DynamoDB Table for Orders
+  # ========================================
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-orders'
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+        - AttributeName: createdAt
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Project
+          Value: ServerlessOrderSystem
+
+  # ========================================
+  # SQS Queue for Order Processing
+  # ========================================
+  OrderProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-order-processing-queue'
+      VisibilityTimeout: 180
+      MessageRetentionPeriod: 1209600  # 14 days
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrderProcessingDLQ.Arn
+        maxReceiveCount: 3
+
+  OrderProcessingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub '${AWS::StackName}-order-processing-dlq'
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # ========================================
+  # SNS Topic for Order Notifications
+  # ========================================
+  OrderNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${AWS::StackName}-order-notifications'
+      DisplayName: Order Notification Topic
+
+  # ========================================
+  # API Gateway REST API
+  # ========================================
+  OrdersApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-orders-api'
+      StageName: prod
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+      Auth:
+        ApiKeyRequired: true
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          UsagePlanName: OrdersApiUsagePlan
+          Quota:
+            Limit: 5000
+            Period: MONTH
+          Throttle:
+            BurstLimit: 200
+            RateLimit: 100
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: Orders API
+          version: '1.0'
+        paths:
+          /orders:
+            post:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrderCreationFunction.Arn}/invocations'
+              requestBody:
+                required: true
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/OrderRequest'
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrderRetrievalFunction.Arn}/invocations'
+          /orders/{id}:
+            get:
+              x-amazon-apigateway-integration:
+                httpMethod: POST
+                type: aws_proxy
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${OrderRetrievalFunction.Arn}/invocations'
+              parameters:
+                - name: id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+        components:
+          schemas:
+            OrderRequest:
+              type: object
+              required:
+                - customerId
+                - items
+              properties:
+                customerId:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      productId:
+                        type: string
+                      quantity:
+                        type: integer
+                      price:
+                        type: number
+
+  # ========================================
+  # Lambda Functions
+  # ========================================
+
+  # Order Creation Function
+  OrderCreationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-order-creation'
+      CodeUri: src/lambdas/order-creation/
+      Handler: app.lambda_handler
+      Description: Validates and creates new orders
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - SQSSendMessagePolicy:
+            QueueName: !GetAtt OrderProcessingQueue.QueueName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderNotificationTopic.TopicName
+        - CloudWatchPutMetricPolicy: {}
+      Events:
+        CreateOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OrdersApi
+            Path: /orders
+            Method: POST
+
+  # Order Retrieval Function
+  OrderRetrievalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-order-retrieval'
+      CodeUri: src/lambdas/order-retrieval/
+      Handler: app.lambda_handler
+      Description: Retrieves orders by ID or lists all orders
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref OrdersTable
+      Events:
+        GetOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OrdersApi
+            Path: /orders/{id}
+            Method: GET
+        ListOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref OrdersApi
+            Path: /orders
+            Method: GET
+
+  # Order Processing Function
+  OrderProcessingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-order-processing'
+      CodeUri: src/lambdas/order-processing/
+      Handler: app.lambda_handler
+      Description: Processes orders (inventory check, payment processing)
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderNotificationTopic.TopicName
+        - CloudWatchPutMetricPolicy: {}
+      Events:
+        OrderQueueEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt OrderProcessingQueue.Arn
+            BatchSize: 10
+            MaximumBatchingWindowInSeconds: 5
+
+  # Order Notification Function
+  OrderNotificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-order-notification'
+      CodeUri: src/lambdas/order-notification/
+      Handler: app.lambda_handler
+      Description: Sends email/SMS notifications for order events
+      Policies:
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderNotificationTopic.TopicName
+        - CloudWatchPutMetricPolicy: {}
+
+  # Permission for SNS to invoke notification Lambda
+  OrderNotificationFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref OrderNotificationFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref OrderNotificationTopic
+
+  # SNS Subscription for Order Notifications
+  OrderNotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref OrderNotificationTopic
+      Endpoint: !GetAtt OrderNotificationFunction.Arn
+    DependsOn: OrderNotificationFunctionPermission
+
+  # ========================================
+  # Step Functions State Machine
+  # ========================================
+  OrderWorkflowStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub '${AWS::StackName}-order-workflow'
+      DefinitionUri: infrastructure/order-workflow.asl.json
+      DefinitionSubstitutions:
+        OrderProcessingFunctionArn: !GetAtt OrderProcessingFunction.Arn
+        OrderNotificationTopicArn: !Ref OrderNotificationTopic
+        OrdersTableName: !Ref OrdersTable
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref OrderProcessingFunction
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt OrderNotificationTopic.TopicName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref OrdersTable
+      Tracing:
+        Enabled: true
+
+  # ========================================
+  # CloudWatch Log Groups
+  # ========================================
+  OrderCreationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${OrderCreationFunction}'
+      RetentionInDays: 7
+
+  OrderProcessingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${OrderProcessingFunction}'
+      RetentionInDays: 7
+
+  OrderNotificationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${OrderNotificationFunction}'
+      RetentionInDays: 7
+
+  OrderRetrievalLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${OrderRetrievalFunction}'
+      RetentionInDays: 7
+
+  # ========================================
+  # CloudWatch Alarms
+  # ========================================
+  OrderProcessingErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-order-processing-errors'
+      AlarmDescription: Alert when order processing has high error rate
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref OrderProcessingFunction
+
+  DLQMessagesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-dlq-messages'
+      AlarmDescription: Alert when messages are sent to DLQ
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt OrderProcessingDLQ.QueueName
+
+# ========================================
+# Outputs
+# ========================================
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL for Prod stage
+    Value: !Sub 'https://${OrdersApi}.execute-api.${AWS::Region}.amazonaws.com/prod'
+    Export:
+      Name: !Sub '${AWS::StackName}-api-endpoint'
+
+  OrdersTableName:
+    Description: DynamoDB table name for orders
+    Value: !Ref OrdersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-orders-table'
+
+  OrderQueueURL:
+    Description: SQS Queue URL for order processing
+    Value: !Ref OrderProcessingQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-queue-url'
+
+  OrderDLQURL:
+    Description: SQS Dead Letter Queue URL
+    Value: !Ref OrderProcessingDLQ
+    Export:
+      Name: !Sub '${AWS::StackName}-dlq-url'
+
+  OrderTopicArn:
+    Description: SNS Topic ARN for order notifications
+    Value: !Ref OrderNotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-topic-arn'
+
+  StateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value: !Ref OrderWorkflowStateMachine
+    Export:
+      Name: !Sub '${AWS::StackName}-state-machine-arn'
