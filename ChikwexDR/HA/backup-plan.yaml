@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - AWS Backup Plan
+  Configures backup vault, plans with multiple retention policies for EC2, EBS, RDS, DynamoDB
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+Resources:
+  # ============================================================
+  # BACKUP VAULT - Where backups are stored
+  # ============================================================
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub ${EnvironmentName}-backup-vault
+
+  # ============================================================
+  # IAM ROLE - For AWS Backup service
+  # ============================================================
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-backup-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores
+
+  # ============================================================
+  # BACKUP PLAN - Daily backups (7-day retention)
+  # ============================================================
+  DailyBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub ${EnvironmentName}-daily-plan
+        BackupPlanRule:
+          - RuleName: DailyBackup
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: cron(0 3 * * ? *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            Lifecycle:
+              DeleteAfterDays: 7
+
+  # ============================================================
+  # BACKUP PLAN - Weekly backups (30-day retention)
+  # ============================================================
+  WeeklyBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub ${EnvironmentName}-weekly-plan
+        BackupPlanRule:
+          - RuleName: WeeklyBackup
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: cron(0 5 ? * SUN *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 300
+            Lifecycle:
+              DeleteAfterDays: 30
+
+  # ============================================================
+  # BACKUP PLAN - Monthly backups (365-day retention)
+  # ============================================================
+  MonthlyBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub ${EnvironmentName}-monthly-plan
+        BackupPlanRule:
+          - RuleName: MonthlyBackup
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: cron(0 6 1 * ? *)
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 480
+            Lifecycle:
+              MoveToColdStorageAfterDays: 90
+              DeleteAfterDays: 365
+
+  # ============================================================
+  # BACKUP SELECTIONS - Which resources to back up
+  # ============================================================
+
+  # Daily: EC2 and DynamoDB (tagged Backup=daily)
+  DailyBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref DailyBackupPlan
+      BackupSelection:
+        SelectionName: !Sub ${EnvironmentName}-daily-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: Backup
+            ConditionValue: daily
+
+  # Weekly: All resources tagged Environment=primary
+  WeeklyBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref WeeklyBackupPlan
+      BackupSelection:
+        SelectionName: !Sub ${EnvironmentName}-weekly-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: Environment
+            ConditionValue: primary
+
+  # Monthly: All resources tagged Environment=primary
+  MonthlyBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref MonthlyBackupPlan
+      BackupSelection:
+        SelectionName: !Sub ${EnvironmentName}-monthly-selection
+        IamRoleArn: !GetAtt BackupRole.Arn
+        ListOfTags:
+          - ConditionType: STRINGEQUALS
+            ConditionKey: Environment
+            ConditionValue: primary
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+Outputs:
+  BackupVaultName:
+    Description: Backup vault name
+    Value: !Ref BackupVault
+
+  BackupVaultArn:
+    Description: Backup vault ARN
+    Value: !GetAtt BackupVault.BackupVaultArn
+
+  DailyBackupPlanId:
+    Description: Daily backup plan ID
+    Value: !Ref DailyBackupPlan
+
+  WeeklyBackupPlanId:
+    Description: Weekly backup plan ID
+    Value: !Ref WeeklyBackupPlan
+
+  MonthlyBackupPlanId:
+    Description: Monthly backup plan ID
+    Value: !Ref MonthlyBackupPlan
+
+  BackupRoleArn:
+    Description: Backup IAM role ARN
+    Value: !GetAtt BackupRole.Arn

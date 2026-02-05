@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - Data Replication
+  S3 Cross-Region Replication and DynamoDB Global Tables
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+  PrimaryBucketArn:
+    Type: String
+    Description: ARN of the primary S3 bucket in us-east-1
+
+  PrimaryBucketName:
+    Type: String
+    Description: Name of the primary S3 bucket
+
+Resources:
+  # ============================================================
+  # S3 DR BUCKET - Replication destination in us-east-2
+  # ============================================================
+  DRBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-app-data-${AWS::AccountId}-dr
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+          - Id: ExpireOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-data-dr
+        - Key: Environment
+          Value: dr
+
+  # ============================================================
+  # IAM ROLE - For S3 Cross-Region Replication
+  # ============================================================
+  S3ReplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-s3-replication-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3ReplicationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetReplicationConfiguration
+                  - s3:ListBucket
+                Resource: !Ref PrimaryBucketArn
+              - Effect: Allow
+                Action:
+                  - s3:GetObjectVersionForReplication
+                  - s3:GetObjectVersionAcl
+                  - s3:GetObjectVersionTagging
+                Resource: !Sub ${PrimaryBucketArn}/*
+              - Effect: Allow
+                Action:
+                  - s3:ReplicateObject
+                  - s3:ReplicateDelete
+                  - s3:ReplicateTags
+                Resource: !Sub arn:aws:s3:::${EnvironmentName}-app-data-${AWS::AccountId}-dr/*
+
+Outputs:
+  DRBucketName:
+    Description: DR S3 bucket name
+    Value: !Ref DRBucket
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-s3-bucket
+
+  DRBucketArn:
+    Description: DR S3 bucket ARN
+    Value: !GetAtt DRBucket.Arn
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-s3-bucket-arn
+
+  S3ReplicationRoleArn:
+    Description: S3 replication IAM role ARN
+    Value: !GetAtt S3ReplicationRole.Arn
+    Export:
+      Name: !Sub ${EnvironmentName}-s3-replication-role-arn

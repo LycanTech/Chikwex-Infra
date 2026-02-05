@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - Route 53 Failover Routing
+  Health checks and failover DNS records for DR
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+  DomainName:
+    Type: String
+    Default: chikwex-dr.internal
+    Description: Domain name for the hosted zone
+
+  PrimaryIP:
+    Type: String
+    Default: 54.159.102.36
+    Description: Public IP of primary web server (us-east-1)
+
+  DRIP:
+    Type: String
+    Default: 3.149.229.16
+    Description: Public IP of DR web server (us-east-2)
+
+Resources:
+  # ============================================================
+  # HOSTED ZONE
+  # ============================================================
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Ref DomainName
+      HostedZoneConfig:
+        Comment: !Sub DR failover zone for ${EnvironmentName}
+
+  # ============================================================
+  # HEALTH CHECKS - Monitor both regions
+  # ============================================================
+  PrimaryHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        IPAddress: !Ref PrimaryIP
+        Port: 80
+        Type: HTTP
+        ResourcePath: /health
+        RequestInterval: 30
+        FailureThreshold: 3
+      HealthCheckTags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-primary-health-check
+
+  DRHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        IPAddress: !Ref DRIP
+        Port: 80
+        Type: HTTP
+        ResourcePath: /health
+        RequestInterval: 30
+        FailureThreshold: 3
+      HealthCheckTags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-health-check
+
+  # ============================================================
+  # FAILOVER DNS RECORDS
+  # ============================================================
+  PrimaryDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: !Sub app.${DomainName}
+      Type: A
+      TTL: 60
+      SetIdentifier: primary
+      Failover: PRIMARY
+      HealthCheckId: !Ref PrimaryHealthCheck
+      ResourceRecords:
+        - !Ref PrimaryIP
+
+  DRDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: !Sub app.${DomainName}
+      Type: A
+      TTL: 60
+      SetIdentifier: secondary
+      Failover: SECONDARY
+      HealthCheckId: !Ref DRHealthCheck
+      ResourceRecords:
+        - !Ref DRIP
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+Outputs:
+  HostedZoneId:
+    Description: Route 53 hosted zone ID
+    Value: !Ref HostedZone
+
+  AppDomainName:
+    Description: Application DNS name
+    Value: !Sub app.${DomainName}
+
+  PrimaryHealthCheckId:
+    Description: Primary health check ID
+    Value: !Ref PrimaryHealthCheck
+
+  DRHealthCheckId:
+    Description: DR health check ID
+    Value: !Ref DRHealthCheck

@@ -1,0 +1,340 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - DR Region Infrastructure (us-east-2)
+  Deploys VPC, EC2 standby, and RDS read replica for disaster recovery
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+  VpcCIDR:
+    Type: String
+    Default: 10.1.0.0/16
+    Description: CIDR block for DR VPC (different from primary 10.0.0.0/16)
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.1.1.0/24
+    Description: CIDR for public subnet in AZ-a
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.1.2.0/24
+    Description: CIDR for public subnet in AZ-b
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.1.3.0/24
+    Description: CIDR for private subnet in AZ-a
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.1.4.0/24
+    Description: CIDR for private subnet in AZ-b
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: RDS read replica instance class
+
+  PrimaryRDSArn:
+    Type: String
+    Description: ARN of the primary RDS instance in us-east-1
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+Resources:
+  # ============================================================
+  # NETWORKING - Full VPC in DR region
+  # ============================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-vpc-dr
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-igw-dr
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Public Subnets
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-public-2a
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-public-2b
+
+  # Private Subnets (for RDS read replica)
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-private-2a
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-private-2b
+
+  # Route Tables
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-public-rt
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-private-rt
+
+  PrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet1
+
+  PrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet2
+
+  # ============================================================
+  # SECURITY GROUPS
+  # ============================================================
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS and SSH access in DR region
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-web-sg
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from DR web servers
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref WebServerSecurityGroup
+          Description: PostgreSQL from DR web servers
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-rds-sg
+
+  # ============================================================
+  # EC2 INSTANCE - DR Standby Web Server
+  # ============================================================
+  DRWebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-web-dr
+        - Key: Environment
+          Value: dr
+        - Key: Backup
+          Value: daily
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<h1>DR Region - ${AWS::Region}</h1><p>Instance: $(hostname)</p><p>Status: STANDBY</p>" > /var/www/html/index.html
+          # Health check endpoint
+          echo "OK" > /var/www/html/health
+
+  # ============================================================
+  # KMS KEY - For encrypting the cross-region read replica
+  # ============================================================
+  DREncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for DR RDS read replica encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EnableRootAccount
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+
+  DREncryptionKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub alias/${EnvironmentName}-dr-rds-key
+      TargetKeyId: !Ref DREncryptionKey
+
+  # ============================================================
+  # RDS READ REPLICA - Cross-Region from primary
+  # ============================================================
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for DR RDS read replica
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-dr-db-subnet-group
+
+  DRReadReplica:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvironmentName}-db-dr-replica
+      SourceDBInstanceIdentifier: !Ref PrimaryRDSArn
+      DBInstanceClass: !Ref DBInstanceClass
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      StorageEncrypted: true
+      KmsKeyId: !Ref DREncryptionKey
+      CopyTagsToSnapshot: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-db-dr-replica
+        - Key: Environment
+          Value: dr
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+Outputs:
+  DRVPCId:
+    Description: DR VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-vpc-id
+
+  DRPublicSubnet1Id:
+    Description: DR public subnet 1
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-public-subnet-1
+
+  DRPublicSubnet2Id:
+    Description: DR public subnet 2
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-public-subnet-2
+
+  DRWebServerPublicIP:
+    Description: Public IP of DR web server
+    Value: !GetAtt DRWebServer.PublicIp
+
+  DRReadReplicaEndpoint:
+    Description: DR RDS read replica endpoint
+    Value: !GetAtt DRReadReplica.Endpoint.Address
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-rds-endpoint
+
+  DRWebServerSecurityGroupId:
+    Description: DR web server security group ID
+    Value: !Ref WebServerSecurityGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-dr-web-sg

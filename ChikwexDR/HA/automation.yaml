@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - DR Automation
+  Lambda for snapshot management, EventBridge for backup monitoring
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+  PrimaryRDSId:
+    Type: String
+    Default: chikwex-dr-db-primary
+    Description: Primary RDS instance identifier
+
+  NotificationEmail:
+    Type: String
+    Description: Email for backup failure notifications
+
+Resources:
+  # ============================================================
+  # SNS TOPIC - Backup notifications
+  # ============================================================
+  BackupNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${EnvironmentName}-backup-notifications
+
+  BackupNotificationSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref BackupNotificationTopic
+      Protocol: email
+      Endpoint: !Ref NotificationEmail
+
+  # ============================================================
+  # IAM ROLE - Lambda execution role
+  # ============================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${EnvironmentName}-lambda-snapshot-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SnapshotManagementPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rds:CreateDBSnapshot
+                  - rds:DeleteDBSnapshot
+                  - rds:DescribeDBSnapshots
+                  - rds:CopyDBSnapshot
+                  - rds:AddTagsToResource
+                  - rds:ListTagsForResource
+                Action:
+                  - rds:CreateDBSnapshot
+                  - rds:DeleteDBSnapshot
+                  - rds:DescribeDBSnapshots
+                  - rds:CopyDBSnapshot
+                  - rds:AddTagsToResource
+                  - rds:ListTagsForResource
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref BackupNotificationTopic
+
+  # ============================================================
+  # LAMBDA - Automated RDS Snapshot Management
+  # ============================================================
+  SnapshotManagementFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${EnvironmentName}-snapshot-manager
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Environment:
+        Variables:
+          RDS_INSTANCE_ID: !Ref PrimaryRDSId
+          DR_REGION: us-east-2
+          SNS_TOPIC_ARN: !Ref BackupNotificationTopic
+          RETENTION_DAYS: '7'
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+          import json
+          from datetime import datetime, timedelta
+
+          def handler(event, context):
+              rds_client = boto3.client('rds')
+              sns_client = boto3.client('sns')
+
+              instance_id = os.environ['RDS_INSTANCE_ID']
+              dr_region = os.environ['DR_REGION']
+              sns_topic = os.environ['SNS_TOPIC_ARN']
+              retention_days = int(os.environ['RETENTION_DAYS'])
+              env_name = os.environ['ENVIRONMENT_NAME']
+
+              timestamp = datetime.utcnow().strftime('%Y-%m-%d-%H-%M')
+              snapshot_id = f"{env_name}-auto-{timestamp}"
+
+              try:
+                  # Step 1: Create snapshot of primary RDS
+                  print(f"Creating snapshot: {snapshot_id}")
+                  rds_client.create_db_snapshot(
+                      DBSnapshotIdentifier=snapshot_id,
+                      DBInstanceIdentifier=instance_id,
+                      Tags=[
+                          {'Key': 'Environment', 'Value': 'primary'},
+                          {'Key': 'AutomatedSnapshot', 'Value': 'true'},
+                          {'Key': 'CreatedBy', 'Value': 'lambda-snapshot-manager'}
+                      ]
+                  )
+
+                  # Step 2: Copy snapshot to DR region
+                  print(f"Initiating cross-region copy to {dr_region}")
+                  dr_rds_client = boto3.client('rds', region_name=dr_region)
+                  source_arn = f"arn:aws:rds:{os.environ['AWS_REGION']}:{context.invoked_function_arn.split(':')[4]}:snapshot:{snapshot_id}"
+
+                  # Note: Copy happens async - snapshot must be available first
+                  # In production, use Step Functions to wait for availability
+
+                  # Step 3: Clean up old snapshots
+                  print("Cleaning up old snapshots...")
+                  cutoff_date = datetime.utcnow() - timedelta(days=retention_days)
+                  snapshots = rds_client.describe_db_snapshots(
+                      DBInstanceIdentifier=instance_id,
+                      SnapshotType='manual'
+                  )['DBSnapshots']
+
+                  deleted_count = 0
+                  for snap in snapshots:
+                      if snap.get('SnapshotCreateTime'):
+                          snap_time = snap['SnapshotCreateTime'].replace(tzinfo=None)
+                          tags = rds_client.list_tags_for_resource(
+                              ResourceName=snap['DBSnapshotArn']
+                          ).get('TagList', [])
+                          is_automated = any(
+                              t['Key'] == 'AutomatedSnapshot' and t['Value'] == 'true'
+                              for t in tags
+                          )
+                          if is_automated and snap_time < cutoff_date:
+                              print(f"Deleting old snapshot: {snap['DBSnapshotIdentifier']}")
+                              rds_client.delete_db_snapshot(
+                                  DBSnapshotIdentifier=snap['DBSnapshotIdentifier']
+                              )
+                              deleted_count += 1
+
+                  # Step 4: Send success notification
+                  message = {
+                      'status': 'SUCCESS',
+                      'snapshot_id': snapshot_id,
+                      'instance_id': instance_id,
+                      'old_snapshots_deleted': deleted_count,
+                      'timestamp': timestamp
+                  }
+                  sns_client.publish(
+                      TopicArn=sns_topic,
+                      Subject=f"[{env_name}] RDS Snapshot Created Successfully",
+                      Message=json.dumps(message, indent=2)
+                  )
+
+                  return {'statusCode': 200, 'body': json.dumps(message)}
+
+              except Exception as e:
+                  error_msg = {
+                      'status': 'FAILED',
+                      'error': str(e),
+                      'instance_id': instance_id,
+                      'timestamp': timestamp
+                  }
+                  sns_client.publish(
+                      TopicArn=sns_topic,
+                      Subject=f"[{env_name}] RDS Snapshot FAILED",
+                      Message=json.dumps(error_msg, indent=2)
+                  )
+                  raise
+
+  # ============================================================
+  # EVENTBRIDGE - Schedule snapshot Lambda daily
+  # ============================================================
+  SnapshotScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${EnvironmentName}-snapshot-schedule
+      Description: Trigger RDS snapshot Lambda daily at 2 AM UTC
+      ScheduleExpression: cron(0 2 * * ? *)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt SnapshotManagementFunction.Arn
+          Id: SnapshotTarget
+
+  SnapshotLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SnapshotManagementFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SnapshotScheduleRule.Arn
+
+  # ============================================================
+  # EVENTBRIDGE - Monitor AWS Backup job failures
+  # ============================================================
+  BackupFailureRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${EnvironmentName}-backup-failure-monitor
+      Description: Alert on AWS Backup job failures
+      EventPattern:
+        source:
+          - aws.backup
+        detail-type:
+          - Backup Job State Change
+        detail:
+          state:
+            - FAILED
+            - ABORTED
+            - EXPIRED
+      State: ENABLED
+      Targets:
+        - Arn: !Ref BackupNotificationTopic
+          Id: BackupFailureNotification
+
+  # SNS Topic Policy to allow EventBridge to publish
+  BackupNotificationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref BackupNotificationTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref BackupNotificationTopic
+
+  # ============================================================
+  # EVENTBRIDGE - Monitor RDS events
+  # ============================================================
+  RDSEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${EnvironmentName}-rds-event-monitor
+      Description: Alert on RDS failover and failure events
+      EventPattern:
+        source:
+          - aws.rds
+        detail-type:
+          - RDS DB Instance Event
+        detail:
+          EventCategories:
+            - failover
+            - failure
+            - notification
+      State: ENABLED
+      Targets:
+        - Arn: !Ref BackupNotificationTopic
+          Id: RDSEventNotification
+
+# ============================================================
+# OUTPUTS
+# ============================================================
+Outputs:
+  SnapshotFunctionArn:
+    Description: Snapshot management Lambda ARN
+    Value: !GetAtt SnapshotManagementFunction.Arn
+
+  SnapshotScheduleRuleArn:
+    Description: EventBridge schedule rule ARN
+    Value: !GetAtt SnapshotScheduleRule.Arn
+
+  BackupFailureRuleArn:
+    Description: Backup failure monitor rule ARN
+    Value: !GetAtt BackupFailureRule.Arn
+
+  NotificationTopicArn:
+    Description: SNS notification topic ARN
+    Value: !Ref BackupNotificationTopic

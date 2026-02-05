@@ -1,0 +1,380 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - Primary Region Infrastructure (us-east-1)
+  Uses existing VPC, creates EC2, RDS, DynamoDB, and S3 for DR demonstration
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+  ExistingVpcId:
+    Type: String
+    Default: vpc-004d871072ca79b9c
+    Description: Existing VPC ID to use
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR for new public subnet in AZ-a
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR for new public subnet in AZ-b
+
+  ExistingPrivateSubnet1:
+    Type: String
+    Default: subnet-0e253de29afb3d49c
+    Description: Existing private subnet in us-east-1a
+
+  ExistingPrivateSubnet2:
+    Type: String
+    Default: subnet-0a58230fec83f534f
+    Description: Existing private subnet in us-east-1b
+
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 instance type
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    Description: RDS instance class
+
+  DBMasterUsername:
+    Type: String
+    Default: dbadmin
+    NoEcho: true
+
+  DBMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: RDS master password (min 8 characters)
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64
+    Description: Latest Amazon Linux 2023 AMI
+
+Resources:
+  # ============================================================
+  # NETWORKING - Internet Gateway + Public Subnets (VPC exists)
+  # ============================================================
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref ExistingVpcId
+
+  # Public Subnets (new - for EC2 web server)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ExistingVpcId
+      AvailabilityZone: us-east-1a
+      CidrBlock: !Ref PublicSubnet1CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-1a
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ExistingVpcId
+      AvailabilityZone: us-east-1b
+      CidrBlock: !Ref PublicSubnet2CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-1b
+
+  # Public Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ExistingVpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-public-rt
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet2
+
+  # ============================================================
+  # SECURITY GROUPS
+  # ============================================================
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP/HTTPS and SSH access
+      VpcId: !Ref ExistingVpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP access
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access (restrict in production)
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-web-sg
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from web servers
+      VpcId: !Ref ExistingVpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref WebServerSecurityGroup
+          Description: PostgreSQL from web servers
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-rds-sg
+
+  # ============================================================
+  # EC2 INSTANCE - Web Server
+  # ============================================================
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-web-primary
+        - Key: Environment
+          Value: primary
+        - Key: Backup
+          Value: daily
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<h1>Primary Region - ${AWS::Region}</h1><p>Instance: $(hostname)</p>" > /var/www/html/index.html
+          # Health check endpoint
+          echo "OK" > /var/www/html/health
+
+  # ============================================================
+  # RDS - PostgreSQL Database (uses existing private subnets)
+  # ============================================================
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for primary RDS
+      SubnetIds:
+        - !Ref ExistingPrivateSubnet1
+        - !Ref ExistingPrivateSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-db-subnet-group
+
+  PrimaryDatabase:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub ${EnvironmentName}-db-primary
+      Engine: postgres
+      EngineVersion: '15'
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: 20
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBMasterPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      CopyTagsToSnapshot: true
+      StorageEncrypted: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-db-primary
+        - Key: Environment
+          Value: primary
+
+  # ============================================================
+  # DYNAMODB TABLE
+  # ============================================================
+  ApplicationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${EnvironmentName}-app-data
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-data
+        - Key: Environment
+          Value: primary
+
+  # ============================================================
+  # S3 BUCKET - Application Data
+  # ============================================================
+  ApplicationBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${EnvironmentName}-app-data-${AWS::AccountId}-primary
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+          - Id: ExpireOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-app-data-primary
+        - Key: Environment
+          Value: primary
+
+# ============================================================
+# OUTPUTS - Used by other stacks (DR, backup, failover)
+# ============================================================
+Outputs:
+  VPCId:
+    Description: Primary VPC ID
+    Value: !Ref ExistingVpcId
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-vpc-id
+
+  PublicSubnet1Id:
+    Description: Primary public subnet 1
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-public-subnet-1
+
+  PublicSubnet2Id:
+    Description: Primary public subnet 2
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-public-subnet-2
+
+  PrivateSubnet1Id:
+    Description: Primary private subnet 1
+    Value: !Ref ExistingPrivateSubnet1
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-private-subnet-1
+
+  PrivateSubnet2Id:
+    Description: Primary private subnet 2
+    Value: !Ref ExistingPrivateSubnet2
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-private-subnet-2
+
+  WebServerPublicIP:
+    Description: Public IP of the web server
+    Value: !GetAtt WebServer.PublicIp
+
+  WebServerSecurityGroupId:
+    Description: Web server security group ID
+    Value: !Ref WebServerSecurityGroup
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-web-sg
+
+  RDSEndpoint:
+    Description: Primary RDS endpoint
+    Value: !GetAtt PrimaryDatabase.Endpoint.Address
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-rds-endpoint
+
+  RDSInstanceId:
+    Description: Primary RDS instance identifier
+    Value: !Ref PrimaryDatabase
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-rds-id
+
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Ref ApplicationTable
+    Export:
+      Name: !Sub ${EnvironmentName}-dynamodb-table
+
+  DynamoDBTableArn:
+    Description: DynamoDB table ARN
+    Value: !GetAtt ApplicationTable.Arn
+    Export:
+      Name: !Sub ${EnvironmentName}-dynamodb-table-arn
+
+  S3BucketName:
+    Description: Primary S3 bucket name
+    Value: !Ref ApplicationBucket
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-s3-bucket
+
+  S3BucketArn:
+    Description: Primary S3 bucket ARN
+    Value: !GetAtt ApplicationBucket.Arn
+    Export:
+      Name: !Sub ${EnvironmentName}-primary-s3-bucket-arn

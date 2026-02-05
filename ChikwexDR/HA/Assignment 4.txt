@@ -1,0 +1,35 @@
+Assignment 4: Disaster Recovery and Backup Strategy
+Topics Covered: AWS Backup, S3 Replication, RDS Snapshots, Route 53 Failover, CloudFormation StackSets
+Scenario:
+Implement a comprehensive disaster recovery solution for multi-region deployment.
+Requirements:
+●    Backup Strategy:
+    Configure AWS Backup for EC2, EBS, RDS, and DynamoDB
+    Create backup plans with different retention policies
+    Test restore procedures
+●    Multi-Region Setup:
+    Deploy infrastructure in two regions (primary + DR)
+    Configure S3 Cross-Region Replication (CRR)
+    Set up RDS read replica in DR region
+●    Data Replication:
+    Enable DynamoDB Global Tables
+    Configure RDS automated snapshots and cross-region copy
+    Implement S3 versioning and lifecycle policies
+●    Failover Mechanism:
+    Configure Route 53 failover routing policy
+    Set up health checks for both regions
+    Document RTO and RPO
+●    Testing:
+    Simulate regional failure
+    Perform failover to DR region
+    Document recovery time
+    Test failback procedures
+●    Automation:
+    Create Lambda function for automated snapshot management
+    Use CloudFormation StackSets for multi-region deployment
+    Implement EventBridge rules for backup monitoring
+●    Deliverables:
+    DR plan documentation (RTO/RPO objectives)
+    Backup and recovery runbook
+    Failover testing report
+    Cost analysis for DR setup

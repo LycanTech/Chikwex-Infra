@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Assignment 4 - Multi-Region Monitoring (deployed via StackSets)
+  CloudWatch alarms and dashboard for DR monitoring in each region
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: chikwex-dr
+    Description: Prefix for resource names
+
+Resources:
+  # ============================================================
+  # CLOUDWATCH ALARMS - EC2 Health Monitoring
+  # ============================================================
+  HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${EnvironmentName}-${AWS::Region}-high-cpu
+      AlarmDescription: !Sub CPU utilization exceeded 80% in ${AWS::Region}
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+
+  StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${EnvironmentName}-${AWS::Region}-status-check
+      AlarmDescription: !Sub EC2 status check failed in ${AWS::Region}
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: breaching
+
+  # ============================================================
+  # CLOUDWATCH DASHBOARD - Regional Overview
+  # ============================================================
+  RegionalDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub ${EnvironmentName}-${AWS::Region}-dr-dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "text",
+              "x": 0,
+              "y": 0,
+              "width": 24,
+              "height": 1,
+              "properties": {
+                "markdown": "# DR Monitoring - ${AWS::Region}"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 1,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "CPUUtilization", {"stat": "Average", "period": 300}]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "EC2 CPU Utilization",
+                "yAxis": {"left": {"min": 0, "max": 100}}
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 1,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/EC2", "StatusCheckFailed", {"stat": "Maximum", "period": 60}]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "EC2 Status Check Failures"
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 7,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/RDS", "CPUUtilization", {"stat": "Average", "period": 300}]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "RDS CPU Utilization",
+                "yAxis": {"left": {"min": 0, "max": 100}}
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 7,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  ["AWS/RDS", "DatabaseConnections", {"stat": "Sum", "period": 300}]
+                ],
+                "view": "timeSeries",
+                "region": "${AWS::Region}",
+                "title": "RDS Database Connections"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  DashboardName:
+    Description: CloudWatch dashboard name
+    Value: !Sub ${EnvironmentName}-${AWS::Region}-dr-dashboard
+
+  HighCPUAlarmArn:
+    Description: High CPU alarm ARN
+    Value: !GetAtt HighCPUAlarm.Arn
+
+  StatusCheckAlarmArn:
+    Description: Status check alarm ARN
+    Value: !GetAtt StatusCheckAlarm.Arn
