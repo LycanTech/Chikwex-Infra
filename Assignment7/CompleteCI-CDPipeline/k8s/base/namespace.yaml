@@ -12,3 +12,4 @@ metadata:
   name: monitoring
   labels:
     app.kubernetes.io/part-of: chikwex-eshopz
+# trigger
