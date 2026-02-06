@@ -20,6 +20,57 @@ env:
 
 jobs:
   # ==============================================================
+  # STAGE 0: SonarCloud Code Quality Analysis
+  # ==============================================================
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies (all services)
+        run: |
+          for service in user-service product-service cart-service payment-service order-service; do
+            cd ${{ env.PROJECT_PATH }}/microservices/$service
+            npm install
+            cd -
+          done
+          cd ${{ env.PROJECT_PATH }}/frontend
+          npm install
+
+      - name: Run tests with coverage
+        run: |
+          for service in user-service product-service cart-service payment-service order-service; do
+            cd ${{ env.PROJECT_PATH }}/microservices/$service
+            npm test -- --coverage --passWithNoTests || true
+            cd -
+          done
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: ${{ env.PROJECT_PATH }}
+          args: >
+            -Dsonar.projectKey=LycanTech_Chikwex-Infra
+            -Dsonar.organization=lycantech
+            -Dsonar.sources=microservices,frontend/src
+            -Dsonar.tests=microservices
+            -Dsonar.test.inclusions=**/*.test.js,**/*.spec.js
+            -Dsonar.javascript.lcov.reportPaths=microservices/*/coverage/lcov.info
+            -Dsonar.exclusions=**/node_modules/**,**/*.test.js,**/*.spec.js
+
+  # ==============================================================
   # STAGE 1: Build and Test Microservices
   # ==============================================================
   build-and-test:
