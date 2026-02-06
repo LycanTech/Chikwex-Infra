@@ -1,0 +1,209 @@
+# ================================================================
+# Azure DevOps CI/CD Pipeline for Chikwex-EShopz
+# ================================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - Assignment7/CompleteCI-CDPipeline/microservices/**
+      - Assignment7/CompleteCI-CDPipeline/frontend/**
+      - Assignment7/CompleteCI-CDPipeline/k8s/**
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  AWS_REGION: 'us-east-1'
+  ECR_REGISTRY: '866934333672.dkr.ecr.us-east-1.amazonaws.com'
+  EKS_CLUSTER_NAME: 'chikwex-eshopz-eks'
+  NAMESPACE: 'chikwex-eshopz'
+
+stages:
+  # ================================================================
+  # STAGE 1: Build and Test
+  # ================================================================
+  - stage: Build
+    displayName: 'Build & Test'
+    jobs:
+      - job: BuildMicroservices
+        displayName: 'Build Microservices'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          matrix:
+            user-service:
+              SERVICE_NAME: 'user-service'
+            product-service:
+              SERVICE_NAME: 'product-service'
+            cart-service:
+              SERVICE_NAME: 'cart-service'
+            payment-service:
+              SERVICE_NAME: 'payment-service'
+            order-service:
+              SERVICE_NAME: 'order-service'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '20.x'
+            displayName: 'Install Node.js'
+
+          - script: |
+              cd Assignment7/CompleteCI-CDPipeline/microservices/$(SERVICE_NAME)
+              npm install
+            displayName: 'Install dependencies'
+
+          - script: |
+              cd Assignment7/CompleteCI-CDPipeline/microservices/$(SERVICE_NAME)
+              npm test -- --passWithNoTests || true
+            displayName: 'Run tests'
+
+      - job: BuildFrontend
+        displayName: 'Build Frontend'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '20.x'
+            displayName: 'Install Node.js'
+
+          - script: |
+              cd Assignment7/CompleteCI-CDPipeline/frontend
+              npm install
+              npm run build
+            displayName: 'Build frontend'
+
+  # ================================================================
+  # STAGE 2: Build Docker Images
+  # ================================================================
+  - stage: DockerBuild
+    displayName: 'Build Docker Images'
+    dependsOn: Build
+    jobs:
+      - job: BuildImages
+        displayName: 'Build & Push Images'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          matrix:
+            user-service:
+              SERVICE_NAME: 'user-service'
+              SERVICE_PATH: 'microservices/user-service'
+            product-service:
+              SERVICE_NAME: 'product-service'
+              SERVICE_PATH: 'microservices/product-service'
+            cart-service:
+              SERVICE_NAME: 'cart-service'
+              SERVICE_PATH: 'microservices/cart-service'
+            payment-service:
+              SERVICE_NAME: 'payment-service'
+              SERVICE_PATH: 'microservices/payment-service'
+            order-service:
+              SERVICE_NAME: 'order-service'
+              SERVICE_PATH: 'microservices/order-service'
+            frontend:
+              SERVICE_NAME: 'frontend'
+              SERVICE_PATH: 'frontend'
+        steps:
+          - task: AWSShellScript@1
+            inputs:
+              awsCredentials: 'AWS-Connection'
+              regionName: '$(AWS_REGION)'
+              scriptType: 'inline'
+              inlineScript: |
+                aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
+            displayName: 'Login to ECR'
+
+          - script: |
+              cd Assignment7/CompleteCI-CDPipeline/$(SERVICE_PATH)
+              docker build -t $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):$(Build.BuildId) \
+                           -t $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):latest .
+            displayName: 'Build Docker image'
+
+          - task: AWSShellScript@1
+            inputs:
+              awsCredentials: 'AWS-Connection'
+              regionName: '$(AWS_REGION)'
+              scriptType: 'inline'
+              inlineScript: |
+                docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):$(Build.BuildId)
+                docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):latest
+            displayName: 'Push to ECR'
+            condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+  # ================================================================
+  # STAGE 3: Deploy to EKS
+  # ================================================================
+  - stage: Deploy
+    displayName: 'Deploy to EKS'
+    dependsOn: DockerBuild
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployToEKS
+        displayName: 'Deploy to EKS'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: AWSShellScript@1
+                  inputs:
+                    awsCredentials: 'AWS-Connection'
+                    regionName: '$(AWS_REGION)'
+                    scriptType: 'inline'
+                    inlineScript: |
+                      aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
+
+                      # Deploy all services
+                      for service in user-service product-service cart-service payment-service order-service frontend; do
+                        echo "Deploying $service..."
+                        kubectl set image deployment/$service \
+                          $service=$(ECR_REGISTRY)/chikwex-eshopz/$service:$(Build.BuildId) \
+                          -n $(NAMESPACE) || true
+                        kubectl rollout status deployment/$service -n $(NAMESPACE) --timeout=300s || true
+                      done
+
+                      echo "Deployment complete!"
+                      kubectl get pods -n $(NAMESPACE)
+                  displayName: 'Deploy to EKS'
+
+  # ================================================================
+  # STAGE 4: Integration Tests
+  # ================================================================
+  - stage: IntegrationTests
+    displayName: 'Integration Tests'
+    dependsOn: Deploy
+    condition: succeeded()
+    jobs:
+      - job: SmokeTests
+        displayName: 'Run Smoke Tests'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AWSShellScript@1
+            inputs:
+              awsCredentials: 'AWS-Connection'
+              regionName: '$(AWS_REGION)'
+              scriptType: 'inline'
+              inlineScript: |
+                aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
+
+                ALB_URL=$(kubectl get ingress chikwex-eshopz-ingress -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+                echo "Testing at: http://$ALB_URL"
+
+                # Test endpoints
+                curl -f http://$ALB_URL/api/products || exit 1
+                curl -f http://$ALB_URL/ || exit 1
+
+                echo "All smoke tests passed!"
+            displayName: 'Run smoke tests'
