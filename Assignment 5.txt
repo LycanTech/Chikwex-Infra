@@ -39,5 +39,5 @@ Requirements:
     Playbook execution report
 
     AWS ACCESS KEYS
-    Secret Access Key: [REMOVED]
-    Access Key: [REMOVED]
+    Secret Access Key: [REMOVED - stored in AWS Secrets Manager]
+    Access Key: [REMOVED - stored in AWS Secrets Manager]
