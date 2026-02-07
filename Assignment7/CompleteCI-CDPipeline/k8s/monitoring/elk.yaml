@@ -101,6 +101,9 @@ kind: Service
 metadata:
   name: kibana
   namespace: monitoring
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
 spec:
   type: LoadBalancer
   ports:
