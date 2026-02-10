@@ -113,14 +113,23 @@ stages:
               SERVICE_NAME: 'frontend'
               SERVICE_PATH: 'frontend'
         steps:
-          - task: AWSShellScript@1
-            inputs:
-              awsCredentials: 'AWS-Connection'
-              regionName: '$(AWS_REGION)'
-              scriptType: 'inline'
-              inlineScript: |
-                aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
-            displayName: 'Login to ECR'
+          - script: |
+              # Install AWS CLI
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q awscliv2.zip
+              sudo ./aws/install --update
+
+              # Configure AWS credentials
+              aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
+              aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
+              aws configure set default.region $(AWS_REGION)
+
+              # Login to ECR
+              aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
+            displayName: 'Configure AWS & Login to ECR'
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
           - script: |
               cd Assignment7/CompleteCI-CDPipeline/$(SERVICE_PATH)
@@ -128,14 +137,9 @@ stages:
                            -t $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):latest .
             displayName: 'Build Docker image'
 
-          - task: AWSShellScript@1
-            inputs:
-              awsCredentials: 'AWS-Connection'
-              regionName: '$(AWS_REGION)'
-              scriptType: 'inline'
-              inlineScript: |
-                docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):$(Build.BuildId)
-                docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):latest
+          - script: |
+              docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):$(Build.BuildId)
+              docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):latest
             displayName: 'Push to ECR'
             condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
@@ -163,41 +167,49 @@ stages:
                     helmVersionToInstall: '3.13.0'
                   displayName: 'Install Helm'
 
-                - task: AWSShellScript@1
-                  inputs:
-                    awsCredentials: 'AWS-Connection'
-                    regionName: '$(AWS_REGION)'
-                    scriptType: 'inline'
-                    inlineScript: |
-                      # Update kubeconfig
-                      aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
+                - script: |
+                    # Install AWS CLI
+                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                    unzip -q awscliv2.zip
+                    sudo ./aws/install --update
 
-                      # Lint Helm chart
-                      helm lint $(HELM_CHART_PATH)
+                    # Configure AWS credentials
+                    aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
+                    aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
+                    aws configure set default.region $(AWS_REGION)
 
-                      # Deploy with Helm
-                      helm upgrade --install chikwex-eshopz $(HELM_CHART_PATH) \
-                        --namespace $(NAMESPACE) \
-                        --set global.imageRegistry=$(ECR_REGISTRY)/chikwex-eshopz \
-                        --set services.userService.image.tag=$(Build.BuildId) \
-                        --set services.productService.image.tag=$(Build.BuildId) \
-                        --set services.cartService.image.tag=$(Build.BuildId) \
-                        --set services.paymentService.image.tag=$(Build.BuildId) \
-                        --set services.orderService.image.tag=$(Build.BuildId) \
-                        --set frontend.image.tag=$(Build.BuildId) \
-                        --wait \
-                        --timeout 10m
+                    # Update kubeconfig
+                    aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
 
-                      # Verify deployment
-                      echo "Helm Release Status:"
-                      helm status chikwex-eshopz -n $(NAMESPACE)
+                    # Lint Helm chart
+                    helm lint $(HELM_CHART_PATH)
 
-                      echo "Pod Status:"
-                      kubectl get pods -n $(NAMESPACE)
+                    # Deploy with Helm
+                    helm upgrade --install chikwex-eshopz $(HELM_CHART_PATH) \
+                      --namespace $(NAMESPACE) \
+                      --set global.imageRegistry=$(ECR_REGISTRY)/chikwex-eshopz \
+                      --set services.userService.image.tag=$(Build.BuildId) \
+                      --set services.productService.image.tag=$(Build.BuildId) \
+                      --set services.cartService.image.tag=$(Build.BuildId) \
+                      --set services.paymentService.image.tag=$(Build.BuildId) \
+                      --set services.orderService.image.tag=$(Build.BuildId) \
+                      --set frontend.image.tag=$(Build.BuildId) \
+                      --wait \
+                      --timeout 10m
 
-                      echo "Helm History:"
-                      helm history chikwex-eshopz -n $(NAMESPACE)
+                    # Verify deployment
+                    echo "Helm Release Status:"
+                    helm status chikwex-eshopz -n $(NAMESPACE)
+
+                    echo "Pod Status:"
+                    kubectl get pods -n $(NAMESPACE)
+
+                    echo "Helm History:"
+                    helm history chikwex-eshopz -n $(NAMESPACE)
                   displayName: 'Deploy with Helm'
+                  env:
+                    AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                    AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
   # ================================================================
   # STAGE 4: Integration Tests
@@ -212,28 +224,38 @@ stages:
         pool:
           vmImage: 'ubuntu-latest'
         steps:
-          - task: AWSShellScript@1
-            inputs:
-              awsCredentials: 'AWS-Connection'
-              regionName: '$(AWS_REGION)'
-              scriptType: 'inline'
-              inlineScript: |
-                aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
+          - script: |
+              # Install AWS CLI
+              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q awscliv2.zip
+              sudo ./aws/install --update
 
-                ALB_URL=$(kubectl get ingress chikwex-eshopz-ingress -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-                echo "Testing at: http://$ALB_URL"
+              # Configure AWS credentials
+              aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
+              aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
+              aws configure set default.region $(AWS_REGION)
 
-                # Test endpoints
-                echo "Testing Frontend..."
-                curl -f http://$ALB_URL/ || echo "Frontend test skipped"
+              # Update kubeconfig
+              aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
 
-                echo "Testing Products API..."
-                curl -f http://$ALB_URL/api/products || echo "Products API test skipped"
+              # Get ALB URL
+              ALB_URL=$(kubectl get ingress chikwex-eshopz-ingress -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+              echo "Testing at: http://$ALB_URL"
 
-                echo "==================================="
-                echo "All smoke tests completed!"
-                echo "==================================="
+              # Test endpoints
+              echo "Testing Frontend..."
+              curl -f http://$ALB_URL/ || echo "Frontend test skipped"
 
-                # Show Helm release info
-                helm history chikwex-eshopz -n $(NAMESPACE)
+              echo "Testing Products API..."
+              curl -f http://$ALB_URL/api/products || echo "Products API test skipped"
+
+              echo "==================================="
+              echo "All smoke tests completed!"
+              echo "==================================="
+
+              # Show Helm release info
+              helm history chikwex-eshopz -n $(NAMESPACE)
             displayName: 'Run smoke tests'
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
