@@ -7,9 +7,10 @@ on:
       - 'Assignment7/CompleteCI-CDPipeline/microservices/**'
       - 'Assignment7/CompleteCI-CDPipeline/frontend/**'
       - 'Assignment7/CompleteCI-CDPipeline/k8s/**'
+      - 'Assignment7/CompleteCI-CDPipeline/helm/**'
   pull_request:
     branches: [main]
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:
 
 env:
   AWS_REGION: us-east-1
@@ -17,6 +18,7 @@ env:
   EKS_CLUSTER_NAME: chikwex-eshopz-eks
   NAMESPACE: chikwex-eshopz
   PROJECT_PATH: Assignment7/CompleteCI-CDPipeline
+  HELM_CHART_PATH: Assignment7/CompleteCI-CDPipeline/helm/chikwex-eshopz
 
 jobs:
   # ==============================================================
@@ -29,7 +31,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for better analysis
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -182,17 +184,14 @@ jobs:
           docker push ${{ env.ECR_REGISTRY }}/chikwex-eshopz/${{ matrix.service }}:latest
 
   # ==============================================================
-  # STAGE 3: Deploy to EKS
+  # STAGE 3: Deploy to EKS with Helm
   # ==============================================================
   deploy:
-    name: Deploy to EKS
+    name: Deploy with Helm
     needs: build-images
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    strategy:
-      matrix:
-        service: [user-service, product-service, cart-service, payment-service, order-service, frontend]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -207,26 +206,39 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ env.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-      - name: Deploy to EKS
-        run: |
-          kubectl set image deployment/${{ matrix.service }} \
-            ${{ matrix.service }}=${{ env.ECR_REGISTRY }}/chikwex-eshopz/${{ matrix.service }}:${{ github.sha }} \
-            -n ${{ env.NAMESPACE }}
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
 
-          kubectl rollout status deployment/${{ matrix.service }} \
-            -n ${{ env.NAMESPACE }} \
-            --timeout=300s
+      - name: Helm Lint
+        run: helm lint ${{ env.HELM_CHART_PATH }}
 
-      - name: Verify deployment
+      - name: Deploy with Helm
         run: |
-          kubectl get pods -n ${{ env.NAMESPACE }} -l app=${{ matrix.service }}
+          helm upgrade --install chikwex-eshopz ${{ env.HELM_CHART_PATH }} \
+            --namespace ${{ env.NAMESPACE }} \
+            --set global.imageRegistry=${{ env.ECR_REGISTRY }}/chikwex-eshopz \
+            --set services.userService.image.tag=${{ github.sha }} \
+            --set services.productService.image.tag=${{ github.sha }} \
+            --set services.cartService.image.tag=${{ github.sha }} \
+            --set services.paymentService.image.tag=${{ github.sha }} \
+            --set services.orderService.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify Helm Release
+        run: |
+          helm status chikwex-eshopz -n ${{ env.NAMESPACE }}
+          kubectl get pods -n ${{ env.NAMESPACE }}
 
       - name: Rollback on failure
         if: failure()
         run: |
           echo "Deployment failed! Rolling back..."
-          kubectl rollout undo deployment/${{ matrix.service }} -n ${{ env.NAMESPACE }}
-          kubectl rollout status deployment/${{ matrix.service }} -n ${{ env.NAMESPACE }} --timeout=300s
+          helm rollback chikwex-eshopz 0 -n ${{ env.NAMESPACE }} || true
+          helm status chikwex-eshopz -n ${{ env.NAMESPACE }}
 
   # ==============================================================
   # STAGE 4: Integration Tests
@@ -266,4 +278,8 @@ jobs:
           done
 
       - name: Deployment complete
-        run: echo "All services deployed and verified successfully!"
+        run: |
+          echo "==================================="
+          echo "Deployment completed successfully!"
+          echo "==================================="
+          helm history chikwex-eshopz -n ${{ env.NAMESPACE }}
