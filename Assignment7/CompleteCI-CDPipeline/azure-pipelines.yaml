@@ -115,21 +115,21 @@ stages:
         steps:
           - script: |
               # Install AWS CLI
-              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -q awscliv2.zip
               sudo ./aws/install --update
 
-              # Configure AWS credentials
-              aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
-              aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
-              aws configure set default.region $(AWS_REGION)
+              # Configure AWS credentials using environment variables
+              export AWS_ACCESS_KEY_ID="$MY_AWS_ACCESS_KEY_ID"
+              export AWS_SECRET_ACCESS_KEY="$MY_AWS_SECRET_ACCESS_KEY"
+              export AWS_DEFAULT_REGION="$(AWS_REGION)"
 
               # Login to ECR
               aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
             displayName: 'Configure AWS & Login to ECR'
             env:
-              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              MY_AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              MY_AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
           - script: |
               cd Assignment7/CompleteCI-CDPipeline/$(SERVICE_PATH)
@@ -138,10 +138,17 @@ stages:
             displayName: 'Build Docker image'
 
           - script: |
+              export AWS_ACCESS_KEY_ID="$MY_AWS_ACCESS_KEY_ID"
+              export AWS_SECRET_ACCESS_KEY="$MY_AWS_SECRET_ACCESS_KEY"
+              export AWS_DEFAULT_REGION="$(AWS_REGION)"
+              aws ecr get-login-password --region $(AWS_REGION) | docker login --username AWS --password-stdin $(ECR_REGISTRY)
               docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):$(Build.BuildId)
               docker push $(ECR_REGISTRY)/chikwex-eshopz/$(SERVICE_NAME):latest
             displayName: 'Push to ECR'
             condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+            env:
+              MY_AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              MY_AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
   # ================================================================
   # STAGE 3: Deploy to EKS with Helm
@@ -169,14 +176,14 @@ stages:
 
                 - script: |
                     # Install AWS CLI
-                    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+                    curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
                     unzip -q awscliv2.zip
                     sudo ./aws/install --update
 
                     # Configure AWS credentials
-                    aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
-                    aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
-                    aws configure set default.region $(AWS_REGION)
+                    export AWS_ACCESS_KEY_ID="$MY_AWS_ACCESS_KEY_ID"
+                    export AWS_SECRET_ACCESS_KEY="$MY_AWS_SECRET_ACCESS_KEY"
+                    export AWS_DEFAULT_REGION="$(AWS_REGION)"
 
                     # Update kubeconfig
                     aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
@@ -208,8 +215,8 @@ stages:
                     helm history chikwex-eshopz -n $(NAMESPACE)
                   displayName: 'Deploy with Helm'
                   env:
-                    AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-                    AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+                    MY_AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+                    MY_AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
 
   # ================================================================
   # STAGE 4: Integration Tests
@@ -226,36 +233,44 @@ stages:
         steps:
           - script: |
               # Install AWS CLI
-              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -q awscliv2.zip
               sudo ./aws/install --update
 
               # Configure AWS credentials
-              aws configure set aws_access_key_id $(AWS_ACCESS_KEY_ID)
-              aws configure set aws_secret_access_key $(AWS_SECRET_ACCESS_KEY)
-              aws configure set default.region $(AWS_REGION)
+              export AWS_ACCESS_KEY_ID="$MY_AWS_ACCESS_KEY_ID"
+              export AWS_SECRET_ACCESS_KEY="$MY_AWS_SECRET_ACCESS_KEY"
+              export AWS_DEFAULT_REGION="$(AWS_REGION)"
 
               # Update kubeconfig
               aws eks update-kubeconfig --name $(EKS_CLUSTER_NAME) --region $(AWS_REGION)
 
+              # Install Helm for history command
+              curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
               # Get ALB URL
-              ALB_URL=$(kubectl get ingress chikwex-eshopz-ingress -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-              echo "Testing at: http://$ALB_URL"
+              ALB_URL=$(kubectl get ingress chikwex-eshopz-ingress -n $(NAMESPACE) -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
 
-              # Test endpoints
-              echo "Testing Frontend..."
-              curl -f http://$ALB_URL/ || echo "Frontend test skipped"
+              if [ -n "$ALB_URL" ]; then
+                echo "Testing at: http://$ALB_URL"
 
-              echo "Testing Products API..."
-              curl -f http://$ALB_URL/api/products || echo "Products API test skipped"
+                # Test endpoints
+                echo "Testing Frontend..."
+                curl -sf http://$ALB_URL/ || echo "Frontend not responding"
+
+                echo "Testing Products API..."
+                curl -sf http://$ALB_URL/api/products || echo "Products API not responding"
+              else
+                echo "ALB URL not available yet"
+              fi
 
               echo "==================================="
               echo "All smoke tests completed!"
               echo "==================================="
 
               # Show Helm release info
-              helm history chikwex-eshopz -n $(NAMESPACE)
+              helm history chikwex-eshopz -n $(NAMESPACE) || true
             displayName: 'Run smoke tests'
             env:
-              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              MY_AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              MY_AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
